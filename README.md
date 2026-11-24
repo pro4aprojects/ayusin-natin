@@ -4,7 +4,13 @@ Gumaganang front-end prototype: mapa ng mga ulat, pag-uulat na may litrato at lo
 
 Plain HTML, CSS at JavaScript ito. Walang build step at walang `npm install`.
 
-## Paano patakbuhin
+## Live demo
+
+Naka-deploy sa GitHub Pages: <https://pro4aprojects.github.io/ayusin-natin/>
+
+Bawat push sa `main` ay awtomatikong nade-deploy (Settings > Pages, source: `main` / root). Gumagana ang **current location** dito dahil https.
+
+## Paano patakbuhin (local)
 
 Sa loob ng folder na ito:
 
