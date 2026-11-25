@@ -8,8 +8,11 @@
   var ROUTES = {
     '': { view: 'map', title: 'Map', nav: 'map' },
     'mga-ulat': { view: 'list', title: 'Reports', nav: 'list' },
-    'mag-ulat': { view: 'report', title: 'Report', nav: 'report' },
+    'mag-ulat': { view: 'report', title: 'Mag-Report', nav: 'report' },
     'ulat': { view: 'detail', title: 'Report details', nav: 'list' },
+    'users': { view: 'users', title: 'Users', nav: 'users' },
+    'user': { view: 'profile', title: 'Profile', nav: 'users' },
+    'contact': { view: 'contact', title: 'Contact Us', nav: 'contact' },
     'account': { view: 'account', title: 'Account', nav: 'account' },
     'admin': { view: 'admin', title: 'Admin', nav: 'admin' }
   };
@@ -24,11 +27,11 @@
     var s = AN.auth.current();
     var link = function (href, key, label) { return '<a href="' + href + '"' + (nav === key ? ' aria-current="page"' : '') + '>' + label + '</a>'; };
     document.getElementById('nav').innerHTML =
-      link('#/', 'map', 'Map') + link('#/mga-ulat', 'list', 'Reports') +
+      link('#/', 'map', 'Map') + link('#/mga-ulat', 'list', 'Reports') + link('#/users', 'users', 'Users') + link('#/contact', 'contact', 'Contact Us') +
       (s && (s.role === 'admin' || s.role === 'moderator') ? link('#/admin', 'admin', 'Admin') : '');
     document.getElementById('actions').innerHTML =
-      '<a class="btn btn--accent" href="#/mag-ulat">Report</a>' +
-      (s ? '<a class="userchip" href="#/account"' + (nav === 'account' ? ' aria-current="page"' : '') + '><span class="avatar" aria-hidden="true">' + esc(s.username.charAt(0).toUpperCase()) + '</span><span>@' + esc(s.username) + '</span></a>'
+      '<a class="btn btn--accent" href="#/mag-ulat">Mag-Report</a>' +
+      (s ? '<a class="userchip" href="#/account"' + (nav === 'account' ? ' aria-current="page"' : '') + '>' + AN.ui.avatar(s.username, 'm') + '<span>@' + esc(s.username) + '</span></a>'
          : '<a class="btn btn--line" href="#/account">Sign in</a>');
   }
 

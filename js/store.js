@@ -7,13 +7,21 @@
   'use strict';
   var AN = (window.AN = window.AN || {});
   var KEY = 'ayusin-natin:demo:v1';
+  var VERSION = 2; // v2: profile photo, ranking, Contact Us messages, mas maraming demo user at report
   var state = null;
   var listeners = [];
   var persisted = true;
+  var byName = {}, statsCache = null, rankCache = null;
 
   function fresh() {
     var seed = AN.buildSeed(Date.now());
-    return { version: 1, reports: seed.reports, users: seed.users, session: { username: 'juan_dc', role: 'user' }, nextId: 500 };
+    return { version: VERSION, reports: seed.reports, users: seed.users, feedback: [], session: { username: 'juan_dc', role: 'user' }, nextId: seed.nextId, nextFeedback: 1 };
+  }
+
+  function reindex() {
+    byName = {};
+    state.users.forEach(function (u) { byName[u.username] = u; });
+    statsCache = null; rankCache = null;
   }
 
   function load() {
@@ -21,10 +29,13 @@
       var raw = window.localStorage.getItem(KEY);
       if (raw) state = JSON.parse(raw);
     } catch (e) { state = null; }
-    if (!state || state.version !== 1 || !Array.isArray(state.reports)) {
+    if (!state || state.version !== VERSION || !Array.isArray(state.reports)) {
       state = fresh();
       save();
     }
+    if (!Array.isArray(state.feedback)) state.feedback = [];
+    if (!state.nextFeedback) state.nextFeedback = state.feedback.length + 1;
+    reindex();
   }
 
   function save() {
@@ -41,10 +52,40 @@
     listeners.slice().forEach(function (fn) { try { fn(); } catch (e) { /* tuloy lang */ } });
   }
 
-  function commit() { var ok = save(); emit(); return ok; }
+  function commit() { statsCache = null; rankCache = null; var ok = save(); emit(); return ok; }
   function nowISO() { return new Date().toISOString(); }
   function find(id) { return state.reports.filter(function (r) { return r.id === id; })[0] || null; }
   function me() { return state.session; }
+  function groupOf(status) { return (AN.STATUSES[status] || AN.STATUSES.naiulat).group; }
+  function newest(a, b) { return a.at < b.at ? 1 : -1; }
+
+  var ZERO = { reports: 0, fixed: 0, fixes: 0, confirms: 0, affected: 0, score: 0, lastAt: '' };
+
+  /** Contribution ng bawat user, kinukwenta mula sa mga report (hindi kasama ang hidden).
+      Points: tingnan ang AN.SCORING sa js/seed.js. */
+  function computeStats() {
+    var by = {};
+    var pts = {};
+    AN.SCORING.forEach(function (s) { pts[s.key] = s.points; });
+    function get(n) { return by[n] || (by[n] = { reports: 0, fixed: 0, fixes: 0, confirms: 0, affected: 0, score: 0, lastAt: '' }); }
+    state.reports.forEach(function (r) {
+      if (r.hidden) return;
+      var s = get(r.reporter);
+      s.reports += 1;
+      if (groupOf(r.status) === 'ayos') s.fixed += 1;
+      if (r.createdAt > s.lastAt) s.lastAt = r.createdAt;
+      r.history.forEach(function (h) {
+        if (h.type === 'naayos' && h.by !== r.reporter) get(h.by).fixes += 1;
+        else if (h.type === 'kumpirmado' && h.by !== r.reporter) get(h.by).confirms += 1;
+      });
+      r.affectedBy.forEach(function (n) { if (n !== r.reporter) get(n).affected += 1; });
+    });
+    Object.keys(by).forEach(function (n) {
+      var s = by[n];
+      s.score = s.reports * pts.reports + s.fixed * pts.fixed + s.fixes * pts.fixes + s.confirms * pts.confirms + s.affected * pts.affected;
+    });
+    return by;
+  }
 
   var store = {
     /** Mga ulat na nakikita ng publiko, pinakabago muna. */
@@ -55,8 +96,38 @@
     all: function () { return state.reports.slice().sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; }); },
     get: find,
     users: function () { return state.users.slice(); },
+    /** Isang user ayon sa username (o null). Mabilis: naka-index. */
+    user: function (username) { return byName[username] || null; },
     isPersisted: function () { return persisted; },
     on: function (fn) { listeners.push(fn); return function () { listeners = listeners.filter(function (f) { return f !== fn; }); }; },
+
+    /* ---------- Contribution at ranking ---------- */
+    statsAll: function () { return statsCache || (statsCache = computeStats()); },
+    stats: function (username) { return store.statsAll()[username] || ZERO; },
+    /** Lahat ng hindi suspended na user, naka-sort ayon sa points (top contributor muna). [{ user, stats, rank }] */
+    ranking: function () {
+      if (rankCache) return rankCache;
+      var st = store.statsAll();
+      var list = state.users.filter(function (u) { return !u.suspended; }).map(function (u) { return { user: u, stats: st[u.username] || ZERO }; });
+      list.sort(function (a, b) { return b.stats.score - a.stats.score || b.stats.reports - a.stats.reports || (a.user.username < b.user.username ? -1 : 1); });
+      list.forEach(function (x, i) { x.rank = i + 1; });
+      rankCache = list;
+      return list;
+    },
+    rankOf: function (username) {
+      return store.ranking().filter(function (x) { return x.user.username === username; })[0] || null;
+    },
+
+    /* ---------- Profile photo ---------- */
+    /** Profile photo ng naka-sign in na user (data URL na maliit, o null para tanggalin). */
+    setPhoto: function (dataUrl) {
+      var s = me();
+      if (!s) return { ok: false, error: 'Mag-sign in muna.' };
+      var u = byName[s.username];
+      if (!u) return { ok: false, error: 'Hindi mahanap ang account.' };
+      u.photo = dataUrl || null;
+      return { ok: true, saved: commit() };
+    },
 
     create: function (data) {
       var s = me();
@@ -71,6 +142,7 @@
         reporter: s.username, createdAt: at, updatedAt: at,
         affected: 1, affectedBy: [s.username], confirmations: 0, confirmedBy: [],
         history: [{ type: 'naiulat', by: s.username, role: s.role, at: at, note: data.description || '' }],
+        termsAcceptedAt: data.termsAcceptedAt || null,
         demo: false
       };
       state.reports.push(report);
@@ -118,6 +190,30 @@
       return i === -1;
     },
 
+    /* ---------- Contact Us (suggestion, additional feature, bug) ---------- */
+    feedback: function () { return state.feedback.slice().sort(newest); },
+    addFeedback: function (d) {
+      var s = me();
+      var item = {
+        id: 'CU-' + String(state.nextFeedback++).padStart(4, '0'),
+        type: d.type || 'suggestion', name: (d.name || '').trim(), email: (d.email || '').trim(), message: (d.message || '').trim(),
+        by: s ? s.username : '', at: nowISO(), status: 'new'
+      };
+      state.feedback.push(item);
+      return { item: item, saved: commit() };
+    },
+    setFeedbackStatus: function (id, status) {
+      var f = state.feedback.filter(function (x) { return x.id === id; })[0];
+      if (!f || ['new', 'read', 'done'].indexOf(status) === -1) return false;
+      f.status = status;
+      commit();
+      return true;
+    },
+    removeFeedback: function (id) {
+      state.feedback = state.feedback.filter(function (x) { return x.id !== id; });
+      commit();
+    },
+
     /** Admin / moderator. */
     moderate: function (id, action, note) {
       var r = find(id); var s = me();
@@ -153,15 +249,15 @@
       commit();
     },
     setUser: function (username, patch) {
-      var u = state.users.filter(function (x) { return x.username === username; })[0];
+      var u = byName[username];
       if (!u) return;
       if (patch.role) u.role = patch.role;
       if (typeof patch.suspended === 'boolean') u.suspended = patch.suspended;
       if (state.session && state.session.username === username) state.session.role = u.role;
       commit();
     },
-    reset: function () { state = fresh(); commit(); },
-    exportJSON: function () { return JSON.stringify({ exportedAt: nowISO(), reports: state.reports, users: state.users }, null, 2); }
+    reset: function () { state = fresh(); reindex(); commit(); },
+    exportJSON: function () { return JSON.stringify({ exportedAt: nowISO(), reports: state.reports, users: state.users, feedback: state.feedback }, null, 2); }
   };
 
   /* ---------- AUTH (naka-abang) ----------

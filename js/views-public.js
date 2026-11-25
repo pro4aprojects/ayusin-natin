@@ -6,12 +6,12 @@
   var ui = AN.ui, esc = ui.esc;
 
   function haystack(r) {
-    return [r.title, r.description, r.city, r.province, r.region, r.barangay, r.landmark, ui.catLabel(r), r.id].join(' ').toLowerCase();
+    return [r.title, r.description, r.city, r.province, r.region, r.barangay, r.landmark, ui.catLabel(r), r.id, r.reporter].join(' ').toLowerCase();
   }
 
   /* ================= MAP (HOME) ================= */
   AN.views.map = function (root) {
-    var f = { cat: 'all', groups: { bukas: true, aksyon: true, ayos: true }, q: '', limit: 12 };
+    var f = { cat: 'all', groups: { bukas: true, aksyon: true, ayos: true }, urgent: false, q: '', limit: 12 };
     var map = null, layer = null, me = null;
 
     root.innerHTML =
@@ -19,15 +19,16 @@
       '<aside class="panel">' +
       '<div class="stack-s"><h1 class="display">Nakita mo? I-report mo.<br>Ayusin natin.</h1>' +
       '<p class="lead">I-photo ang sirang kalsada, baha, o kahit anong problema sa area niyo. Visible ito sa buong Pilipinas hanggang ma-fix.</p></div>' +
-      '<div class="field"><label for="q">Search ng place o problema</label><input id="q" type="search" placeholder="Hal. Marikina, lubak, baha" autocomplete="off"></div>' +
+      '<div class="field"><label for="q">Search ng place, problema o user</label><input id="q" type="search" placeholder="Hal. Marikina, lubak, baha" autocomplete="off"></div>' +
       '<div class="chips" id="cats" role="group" aria-label="Category"></div>' +
       '<div class="listhead"><h2>Reports</h2><span class="muted small" id="count"></span></div>' +
       '<div class="rlist" id="list"></div>' +
       '<button type="button" class="btn btn--ghost" id="more" hidden>Show more</button>' +
+      '<p class="muted small" id="capnote" hidden></p>' +
       '</aside>' +
       '<section class="mapwrap" aria-label="Map ng mga reports">' +
       '<div id="map" class="map"></div>' +
-      '<div class="mapbar" id="groups" role="group" aria-label="Status"></div>' +
+      '<div class="mapbar" id="groups" role="group" aria-label="Status at urgent filter"></div>' +
       '<button type="button" class="mapbtn" id="near">Near me</button>' +
       '</section></div>';
 
@@ -42,7 +43,8 @@
 
     function render(fit) {
       var pool = base();
-      var shown = pool.filter(function (r) { return f.groups[AN.STATUSES[r.status].group]; });
+      var urgentPool = pool.filter(ui.isUrgent);
+      var shown = pool.filter(function (r) { return f.groups[AN.STATUSES[r.status].group] && (!f.urgent || ui.isUrgent(r)); });
 
       $('#cats').innerHTML = [{ id: 'all', short: 'All' }].concat(AN.CATEGORIES).map(function (c) {
         return '<button type="button" class="chip' + (f.cat === c.id ? ' is-on' : '') + '" data-cat="' + c.id + '" aria-pressed="' + (f.cat === c.id) + '">' + esc(c.short) + '</button>';
@@ -51,13 +53,18 @@
       $('#groups').innerHTML = AN.STATUS_GROUPS.map(function (g) {
         var n = pool.filter(function (r) { return AN.STATUSES[r.status].group === g.id; }).length;
         return '<button type="button" class="mapbar__btn' + (f.groups[g.id] ? ' is-on' : '') + '" data-group="' + g.id + '" aria-pressed="' + f.groups[g.id] + '"><span class="dot dot--' + g.id + '"></span>' + esc(g.label) + ' <b>' + n + '</b></button>';
-      }).join('');
+      }).join('') +
+        // Filter: urgent lang na hindi pa na-fix (ang mga kumikislap na pula sa mapa).
+        '<button type="button" class="mapbar__btn mapbar__btn--urgent' + (f.urgent ? ' is-on' : '') + '" data-urgent aria-pressed="' + f.urgent + '" title="Ipakita lang ang urgent na hindi pa na-fix"><span class="dot dot--urgent"></span>Urgent, hindi pa fixed <b>' + urgentPool.length + '</b></button>';
 
+      var cap = Math.min(f.limit, ui.LIMITS.display);
       $('#count').textContent = shown.length + ' reports · demo data';
       $('#list').innerHTML = shown.length
-        ? shown.slice(0, f.limit).map(function (r) { return ui.reportCard(r); }).join('')
-        : '<p class="empty">Walang match na report. Try ng ibang place o category.</p>';
-      $('#more').hidden = shown.length <= f.limit;
+        ? shown.slice(0, cap).map(function (r) { return ui.reportCard(r); }).join('')
+        : '<p class="empty">Walang match na report. Try ng ibang place, category o filter.</p>';
+      $('#more').hidden = shown.length <= cap || cap >= ui.LIMITS.display;
+      $('#capnote').hidden = !(shown.length > ui.LIMITS.display && cap >= ui.LIMITS.display);
+      $('#capnote').textContent = 'Unang ' + ui.LIMITS.display + ' lang ang naka-display sa list para hindi mabigat. Lahat ng ' + shown.length + ' ay nasa map; i-refine ang search para makita ang iba.';
 
       if (map) {
         layer.set(shown);
@@ -66,10 +73,11 @@
     }
 
     function popupHTML(r) {
-      return '<div class="pop"><img alt="" src="' + ui.photoSrc(ui.firstPhoto(r)) + '">' +
+      return '<div class="pop' + (ui.isUrgent(r) ? ' pop--urgent' : '') + '"><img alt="" src="' + ui.photoSrc(ui.firstPhoto(r)) + '">' +
         '<strong>' + esc(r.title) + '</strong>' +
         '<span class="muted small">' + esc(ui.placeLine(r)) + ' · ' + r.affected + ' affected din</span>' +
-        ui.statusPill(r.status) +
+        '<span class="pop__row">' + ui.statusPill(r.status) + ui.urgentPill(r) + '</span>' +
+        ui.userLink(r.reporter, 'xs', 'small') +
         '<a class="btn btn--dark btn--sm" href="#/ulat/' + esc(r.id) + '">View report</a></div>';
     }
 
@@ -91,6 +99,8 @@
       f.cat = b.getAttribute('data-cat'); f.limit = 12; render(false);
     });
     $('#groups').addEventListener('click', function (e) {
+      var u = e.target.closest('[data-urgent]');
+      if (u) { f.urgent = !f.urgent; f.limit = 12; render(f.urgent); return; }
       var b = e.target.closest('[data-group]'); if (!b) return;
       var g = b.getAttribute('data-group'); f.groups[g] = !f.groups[g]; render(false);
     });
@@ -115,31 +125,44 @@
 
   /* ================= REPORTS (LIST) ================= */
   AN.views.list = function (root) {
-    var f = { cat: 'all', group: 'all', sort: 'bago', q: '' };
+    var f = { cat: 'all', group: 'all', sev: 'all', sort: 'bago', q: '', page: 1 };
     root.innerHTML =
       '<div class="page">' +
-      '<div class="stack-s"><h1 class="display">Reports</h1><p class="lead">Lahat ng reports sa demo data. I-click ang report para makita ang details at history.</p></div>' +
+      '<div class="stack-s"><h1 class="display">Reports</h1><p class="lead">Lahat ng reports sa demo data. Sa lahat tumatakbo ang search, filter at sort; max ' + ui.LIMITS.display + ' ang naka-display kada resulta, ' + ui.LIMITS.perPage + ' kada page.</p></div>' +
       '<div class="filters">' +
-      '<div class="field"><label for="lq">Search</label><input id="lq" type="search" placeholder="Place, problema o report number" autocomplete="off"></div>' +
+      '<div class="field"><label for="lq">Search</label><input id="lq" type="search" placeholder="Place, problema, user o report number" autocomplete="off"></div>' +
       '<div class="field"><label for="lcat">Category</label><select id="lcat"><option value="all">All</option>' + AN.CATEGORIES.map(function (c) { return '<option value="' + c.id + '">' + esc(c.label) + '</option>'; }).join('') + '</select></div>' +
       '<div class="field"><label for="lgroup">Status</label><select id="lgroup"><option value="all">All</option>' + AN.STATUS_GROUPS.map(function (g) { return '<option value="' + g.id + '">' + esc(g.label) + '</option>'; }).join('') + '</select></div>' +
-      '<div class="field"><label for="lsort">Sort</label><select id="lsort"><option value="bago">Latest</option><option value="apektado">Most affected</option></select></div>' +
+      '<div class="field"><label for="lsev">Severity</label><select id="lsev"><option value="all">All</option>' + AN.SEVERITIES.map(function (v) { return '<option value="' + v.id + '">' + esc(v.label) + '</option>'; }).join('') + '<option value="urgent-open">Urgent, hindi pa fixed</option></select></div>' +
+      '<div class="field"><label for="lsort">Sort</label><select id="lsort"><option value="bago">Latest</option><option value="luma">Oldest</option><option value="apektado">Most affected</option></select></div>' +
       '</div>' +
-      '<p class="muted small" id="lcount"></p><div class="rgrid" id="lgrid"></div></div>';
+      '<p class="muted small" id="lcount"></p><div class="rgrid" id="lgrid"></div><div id="lpager"></div></div>';
     var $ = function (sel) { return root.querySelector(sel); };
     function render() {
       var q = f.q.trim().toLowerCase();
       var rows = AN.store.list().filter(function (r) {
-        return (f.cat === 'all' || r.category === f.cat) && (f.group === 'all' || AN.STATUSES[r.status].group === f.group) && (!q || haystack(r).indexOf(q) !== -1);
+        return (f.cat === 'all' || r.category === f.cat) && (f.group === 'all' || AN.STATUSES[r.status].group === f.group) &&
+          (f.sev === 'all' || (f.sev === 'urgent-open' ? ui.isUrgent(r) : r.severity === f.sev)) && (!q || haystack(r).indexOf(q) !== -1);
       });
       if (f.sort === 'apektado') rows.sort(function (a, b) { return b.affected - a.affected; });
-      $('#lcount').textContent = rows.length + ' reports';
-      $('#lgrid').innerHTML = rows.length ? rows.map(function (r) { return ui.reportCard(r); }).join('') : '<p class="empty">Walang match na report.</p>';
+      else if (f.sort === 'luma') rows.reverse();
+      var pg = ui.paginate(rows, f.page);
+      f.page = pg.page;
+      $('#lcount').textContent = ui.countLine(pg, 'reports');
+      $('#lgrid').innerHTML = pg.items.length ? pg.items.map(function (r) { return ui.reportCard(r); }).join('') : '<p class="empty">Walang match na report.</p>';
+      $('#lpager').innerHTML = ui.pagerHTML(pg);
     }
-    $('#lq').addEventListener('input', function (e) { f.q = e.target.value; render(); });
-    $('#lcat').addEventListener('change', function (e) { f.cat = e.target.value; render(); });
-    $('#lgroup').addEventListener('change', function (e) { f.group = e.target.value; render(); });
-    $('#lsort').addEventListener('change', function (e) { f.sort = e.target.value; render(); });
+    function reset(fn) { return function (e) { fn(e); f.page = 1; render(); }; }
+    $('#lq').addEventListener('input', reset(function (e) { f.q = e.target.value; }));
+    $('#lcat').addEventListener('change', reset(function (e) { f.cat = e.target.value; }));
+    $('#lgroup').addEventListener('change', reset(function (e) { f.group = e.target.value; }));
+    $('#lsev').addEventListener('change', reset(function (e) { f.sev = e.target.value; }));
+    $('#lsort').addEventListener('change', reset(function (e) { f.sort = e.target.value; }));
+    $('#lpager').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-page]'); if (!b || b.disabled) return;
+      f.page = +b.getAttribute('data-page'); render();
+      $('#lcount').scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
     var off = AN.store.on(render);
     render();
     return off;
@@ -172,8 +195,8 @@
         '<div class="page">' +
         '<div class="stack-s">' +
         '<p class="crumbs"><a href="#/">Map</a> / ' + esc(r.province || 'Pilipinas') + ' / ' + esc(r.city || '') + ' / Report #' + esc(r.id) + '</p>' +
-        '<div class="titlerow"><h1 class="display">' + esc(r.title) + '</h1>' + ui.statusPill(r.status, true) + '</div>' +
-        '<p class="muted">' + esc(ui.catLabel(r)) + ' · Reported by @' + esc(r.reporter) + ' · ' + ui.fmtDate(r.createdAt) + (sev ? ' · ' + esc(sev.label) : '') + '</p>' +
+        '<div class="titlerow"><h1 class="display">' + esc(r.title) + '</h1><span class="btnrow">' + ui.statusPill(r.status, true) + (ui.isUrgent(r) ? '<span class="pill pill--urgent pill--big">Urgent</span>' : '') + '</span></div>' +
+        '<p class="muted byline">' + esc(ui.catLabel(r)) + ' · Reported by ' + ui.userLink(r.reporter, 'xs') + ' · ' + ui.fmtDate(r.createdAt) + (sev ? ' · ' + esc(sev.label) : '') + '</p>' +
         (r.hidden ? '<p class="note note--warn">Hidden sa public ang report na ito (na-reject sa review).</p>' : '') +
         (r.needsReview && !r.hidden ? '<p class="note">Pending pa ang review ng moderator.</p>' : '') +
         '</div>' +
@@ -188,7 +211,7 @@
         (r.description ? '<section class="card"><h2>Description</h2><p class="body">' + esc(r.description) + '</p></section>' : '') +
         '<section class="card"><h2>Report history</h2><ol class="timeline">' +
         r.history.map(function (h) {
-          return '<li><span class="dot dot--' + (HISTORY_DOT[h.type] || 'neutral') + '"></span><div><div><b>' + esc(HISTORY_LABEL[h.type] || h.type) + '</b> · @' + esc(h.by) +
+          return '<li><span class="dot dot--' + (HISTORY_DOT[h.type] || 'neutral') + '"></span><div><div class="byline"><b>' + esc(HISTORY_LABEL[h.type] || h.type) + '</b> · ' + ui.userLink(h.by, 'xs') +
             (h.role && h.role !== 'user' ? ' <span class="badge">' + esc(AN.ROLES[h.role] || h.role) + '</span>' : '') + ' · ' + ui.fmtDate(h.at) + '</div>' +
             (h.note ? '<div class="muted">' + esc(h.note) + '</div>' : '') + '</div></li>';
         }).join('') + '</ol></section>' +
@@ -198,6 +221,7 @@
         '<button type="button" class="btn btn--outline btn--block' + (mine ? ' is-on' : '') + '" id="affected" aria-pressed="' + !!mine + '">' + (mine ? 'Affected din ako ✓' : 'Affected din ako') + ' · ' + r.affected + '</button>' +
         '<div class="btnrow"><button type="button" class="btn btn--ghost" id="share">Share</button><button type="button" class="btn btn--ghost" id="copy">Copy link</button></div>' +
         '</section>' +
+        '<section class="card card--flush"><a class="reporter" href="#/user/' + encodeURIComponent(r.reporter) + '">' + ui.avatar(r.reporter, 'l') + '<span class="stack-xs"><span class="muted small">Reported by</span><b>@' + esc(r.reporter) + '</b><span class="muted small">' + AN.store.stats(r.reporter).reports + ' reports · View profile</span></span></a></section>' +
         (canConfirm ? '<section class="card card--ok stack-s"><h2>Fixed na ba talaga?</h2><p class="muted">May nag-report na fixed na ito (' + r.confirmations + ' confirmation). Kung nakita mo mismo, i-confirm.</p><button type="button" class="btn btn--dark btn--block" id="confirm">Confirm fixed</button></section>' : '') +
         (s
           ? '<section class="card card--strong stack-s"><h2>Update status</h2>' +

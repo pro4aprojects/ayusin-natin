@@ -1,4 +1,5 @@
-/* Ayusin Natin — Report a problem. Camera lang ang photo (walang gallery), at required ang current location (GPS). */
+/* Ayusin Natin — Mag-Report. Terms & Conditions muna (required ang checkbox) bawat bukas ng page,
+   camera lang ang photo (walang gallery), at required ang current location (GPS). */
 (function () {
   'use strict';
   var AN = (window.AN = window.AN || {});
@@ -7,6 +8,28 @@
   var MAX_PHOTOS = 3;
   var CAM_ICON = '<svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" focusable="false"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 
+  /** Terms & Conditions ng pag-report. Lumalabas sa bawat bukas ng Mag-Report; hindi inaalala ang pag-agree. */
+  AN.TERMS = [
+    ['Totoo at sarili mong report.', 'Problema sa public na lugar lang ang i-report (kalsada, baha, ilaw, basura, at iba pa), hindi tao o private na alitan. Siguraduhing totoo at kita mo mismo ang detalye.'],
+    ['Photo.', 'Ikaw ang kumuha ng photo gamit ang camera. Ikaw ang may-ari nito at binibigyan mo ang Ayusin Natin ng permiso na ipakita ito sa public kasama ng report. Iwasang makunan ang mukha ng tao, plate number at iba pang personal na detalye.'],
+    ['Location.', 'Kinukuha ang current GPS location mo at ipinapakita sa public map bilang location ng problema. Tumayo sa mismong lugar ng problema; huwag mag-report mula sa ibang lugar.'],
+    ['Username at profile.', 'Lalabas sa report ang username at profile photo mo, at makikita ng iba ang listahan ng reports mo sa profile mo. Huwag maglagay ng personal info ng ibang tao sa title, description o photo.'],
+    ['Moderation.', 'Pwedeng i-hide, i-update ang status, o i-delete ng moderator o admin ang report na mali, duplicate, spam o lumalabag sa rules. Pwedeng ma-suspend ang account na paulit-ulit lumalabag.'],
+    ['Hindi ito emergency hotline.', 'Kung may nasugatan, sunog, o buhay ang nakataya, tumawag muna sa 911 o sa hotline ng LGU bago mag-report dito.'],
+    ['Demo.', 'Sa prototype na ito, sa browser mo lang naka-save ang data at walang ahensyang tumatanggap ng report. Pwedeng i-reset anumang oras ang demo data.']
+  ];
+
+  function termsHTML() {
+    return '<div class="modal" id="terms" role="dialog" aria-modal="true" aria-labelledby="terms-h" aria-describedby="terms-body">' +
+      '<div class="modal__box">' +
+      '<div class="stack-xs"><p class="eyebrow">Bago mag-report</p><h2 id="terms-h">Terms &amp; Conditions</h2></div>' +
+      '<div class="modal__body" id="terms-body"><p class="muted">Basahin muna. Sa pag-tick ng checkbox, sumasang-ayon ka sa mga ito bawat report na i-submit mo.</p><ol>' +
+      AN.TERMS.map(function (t) { return '<li><b>' + esc(t[0]) + '</b> ' + esc(t[1]) + '</li>'; }).join('') + '</ol></div>' +
+      '<label class="check"><input type="checkbox" id="agree"><span>Nabasa ko at sumasang-ayon ako sa Terms &amp; Conditions, kasama ang paggamit ng photo, location at username ko sa public na report.</span></label>' +
+      '<div class="btnrow"><button type="button" class="btn btn--accent btn--lg" id="proceed" disabled>Proceed sa report</button><a class="btn btn--ghost" href="#/">Cancel</a></div>' +
+      '</div></div>';
+  }
+
   AN.views.report = function (root) {
     var s = AN.auth.current();
     if (!s) {
@@ -14,12 +37,13 @@
       return;
     }
 
-    var form = { photos: [], category: null, categoryOther: '', lat: null, lng: null, accuracy: null, region: '', province: '', city: '', barangay: '', landmark: '', title: '', description: '', severity: 'delikado' };
+    var form = { photos: [], category: null, categoryOther: '', lat: null, lng: null, accuracy: null, region: '', province: '', city: '', barangay: '', landmark: '', title: '', description: '', severity: 'delikado', termsAt: null };
     var map = null, marker = null, locating = false;
 
     root.innerHTML =
-      '<div class="page">' +
-      '<div class="stack-s"><h1 class="display">Mag-report ng problema</h1><p class="lead">4 steps lang. Signed in as @' + esc(s.username) + '.</p></div>' +
+      termsHTML() +
+      '<div class="page" id="rpage">' +
+      '<div class="stack-s"><h1 class="display">Mag-Report ng problema</h1><p class="lead">4 steps lang. Signed in as @' + esc(s.username) + '.</p></div>' +
       '<div class="cols">' +
       '<form class="cols__main stack-m" id="rform" novalidate>' +
 
@@ -48,7 +72,7 @@
       '<div class="field"><label for="title">Short title</label><input id="title" type="text" maxlength="80" placeholder="Hal. Malalim na pothole sa tapat ng palengke" autocomplete="off"></div>' +
       '<div class="field"><label for="description">Description (optional)</label><textarea id="description" rows="3" maxlength="600" placeholder="Gaano na katagal? Sino ang affected?"></textarea></div>' +
       '<fieldset class="radios"><legend>Severity: gaano ka-grabe?</legend>' +
-      AN.SEVERITIES.map(function (v) { return '<label><input type="radio" name="severity" value="' + v.id + '"' + (v.id === form.severity ? ' checked' : '') + '>' + esc(v.label) + '</label>'; }).join('') +
+      AN.SEVERITIES.map(function (v) { return '<label><input type="radio" name="severity" value="' + v.id + '"' + (v.id === form.severity ? ' checked' : '') + '>' + esc(v.label) + (v.id === 'agaran' ? ' <span class="muted small">(kikislap na pula sa map)</span>' : '') + '</label>'; }).join('') +
       '</fieldset></section>' +
 
       '<div class="errors" id="errors" role="alert" tabindex="-1" hidden></div>' +
@@ -59,9 +83,39 @@
       '<section class="card card--warn stack-s" id="dupes" hidden></section>' +
       '<section class="card stack-s"><h2>Reminders</h2><ul class="bullets"><li>Place at problema ang i-report, hindi tao.</li><li>Huwag i-risk ang sarili para lang makakuha ng photo.</li><li>Kung emergency, tumawag muna sa 911.</li></ul></section>' +
       '<section class="card stack-s"><h2>Para mas accurate ang location</h2><ul class="bullets"><li>I-on ang GPS o Location ng phone at i-allow kapag nagtanong ang browser.</li><li>Tumayo sa mismong lugar ng problema bago i-tap ang button.</li><li>Kung malaki ang ± meters, lumabas sa open na lugar at i-tap ulit.</li></ul></section>' +
+      '<section class="card stack-s"><h2>Terms &amp; Conditions</h2><p class="muted small">Sumang-ayon ka sa Terms bago nabuksan ang form na ito. <button type="button" class="linkbtn" id="showterms">Basahin ulit</button></p></section>' +
       '</aside></div></div>';
 
     var $ = function (sel) { return root.querySelector(sel); };
+
+    /* ---------- Terms & Conditions (modal; required bago ma-proceed) ---------- */
+    var page = $('#rpage');
+    function lockPage(locked) {
+      // Hindi ma-tab o ma-click ang form habang nakabukas ang Terms.
+      if (locked) { page.setAttribute('inert', ''); page.setAttribute('aria-hidden', 'true'); document.body.classList.add('has-modal'); }
+      else { page.removeAttribute('inert'); page.removeAttribute('aria-hidden'); document.body.classList.remove('has-modal'); }
+    }
+    function openTerms(reread) {
+      var modal = $('#terms');
+      if (!modal) { root.insertAdjacentHTML('afterbegin', termsHTML()); modal = $('#terms'); }
+      var agree = modal.querySelector('#agree'), proceed = modal.querySelector('#proceed');
+      if (reread) { agree.checked = true; proceed.disabled = false; proceed.textContent = 'Balik sa form'; }
+      agree.addEventListener('change', function () { proceed.disabled = !agree.checked; });
+      proceed.addEventListener('click', function () {
+        if (!agree.checked) return;
+        form.termsAt = form.termsAt || new Date().toISOString();
+        modal.remove();
+        lockPage(false);
+        if (!reread) { ui.toast('Salamat. Pwede ka nang mag-report.', 'ok'); var cam = $('#cam'); if (cam) cam.closest('label').focus(); }
+      });
+      lockPage(true);
+      modal.querySelector('.modal__box').setAttribute('tabindex', '-1');
+      modal.querySelector('.modal__box').focus();
+    }
+    function onKey(e) { if (e.key === 'Escape' && $('#terms')) location.hash = '#/'; }
+    document.addEventListener('keydown', onKey);
+    openTerms(false);
+    $('#showterms').addEventListener('click', function () { openTerms(true); });
 
     function gpsLabel(busy) { return busy ? 'Getting location…' : 'Use current location'; }
 
@@ -190,6 +244,7 @@
     $('#rform').addEventListener('submit', function (e) {
       e.preventDefault();
       var errs = [];
+      if (!form.termsAt) errs.push('Sumang-ayon muna sa Terms & Conditions.');
       if (!form.photos.length) errs.push('Kumuha ng at least 1 photo gamit ang camera.');
       if (!form.category) errs.push('Pumili ng category.');
       else if (form.category === 'iba' && form.categoryOther.trim().length < 3) errs.push('I-specify kung ano ang problema sa "Iba pa".');
@@ -208,13 +263,17 @@
         title: form.title.trim(), description: form.description.trim(), category: form.category, categoryOther: form.category === 'iba' ? form.categoryOther.trim() : '', severity: form.severity,
         lat: form.lat, lng: form.lng, accuracy: form.accuracy, locationSource: 'gps',
         region: form.region, province: form.province, city: form.city, barangay: form.barangay.trim(), landmark: form.landmark.trim(),
-        photos: form.photos
+        photos: form.photos, termsAcceptedAt: form.termsAt
       });
       ui.toast(res.saved ? 'Submitted na ang report. Salamat!' : 'Submitted, pero full na ang browser storage kaya mawawala ito pag-refresh.', res.saved ? 'ok' : 'error');
       location.hash = '#/ulat/' + res.report.id;
     });
 
     renderPhotos(); renderCats(); renderStatus();
-    return function () { if (map) { map.remove(); map = null; } };
+    return function () {
+      document.removeEventListener('keydown', onKey);
+      document.body.classList.remove('has-modal');
+      if (map) { map.remove(); map = null; }
+    };
   };
 })();

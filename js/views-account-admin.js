@@ -1,9 +1,10 @@
-/* Ayusin Natin — Account (naka-abang na login) at Admin. */
+/* Ayusin Natin — Account (profile photo + naka-abang na login) at Admin. */
 (function () {
   'use strict';
   var AN = (window.AN = window.AN || {});
   AN.views = AN.views || {};
   var ui = AN.ui, esc = ui.esc;
+  var AVATAR_MAX_BYTES = 30 * 1024; // mas maliit pa sa report photo: 320 px, max 30 KB
 
   function rulesHTML(pw) {
     return AN.auth.passwordChecks(pw).map(function (c) {
@@ -25,9 +26,25 @@
   AN.views.account = function (root) {
     function render() {
       var s = AN.auth.current();
+      var u = s && AN.store.user(s.username);
+      var st = s ? AN.store.stats(s.username) : null;
+      var rk = s ? AN.store.rankOf(s.username) : null;
       root.innerHTML =
         '<div class="page">' +
         '<div class="stack-s"><h1 class="display">Account mo</h1><p class="lead">Open sa lahat ang map kahit walang account. Kailangan lang mag-sign in para mag-report at mag-update.</p></div>' +
+
+        (s
+          ? '<section class="card profile"><div class="avatarwrap">' + ui.avatar(s.username, 'xl') + '</div>' +
+            '<div class="stack-s profile__main">' +
+            '<div class="titlerow"><h2>@' + esc(s.username) + ' <span class="badge">' + esc(AN.ROLES[s.role]) + '</span></h2><a class="small" href="#/user/' + encodeURIComponent(s.username) + '">View public profile</a></div>' +
+            '<p class="muted small">' + (st ? st.reports + ' reports · ' + st.score + ' points' : '') + (rk ? ' · Rank #' + rk.rank : '') + '</p>' +
+            '<div class="btnrow">' +
+            '<label class="btn btn--dark filebtn">Change profile photo<input type="file" id="pphoto" accept="image/*"></label>' +
+            (u && u.photo ? '<button type="button" class="btn btn--ghost" id="rmpphoto">Remove photo</button>' : '') +
+            '</div>' +
+            '<p class="muted small">Pwede mula sa camera o gallery. Nire-resize sa 320 px at nako-compress sa max 30 KB. Kung walang photo, default user icon ang lalabas sa reports at profile mo.</p>' +
+            '</div></section>'
+          : '') +
 
         '<section class="card card--warn stack-s"><h2>Demo mode</h2>' +
         '<p class="muted">Wala pang totoong login. Nandiyan na ang mga button at form sa baba, pero dito ka muna pumili ng demo account para ma-try ang bawat role. ' +
@@ -78,6 +95,21 @@
         });
       });
       if ($('#signout')) $('#signout').addEventListener('click', function () { AN.auth.signOut(); ui.toast('Naka-sign out ka na.'); });
+
+      /* Profile photo: compress nang maliit, tapos i-save sa user record. */
+      if ($('#pphoto')) $('#pphoto').addEventListener('change', function (e) {
+        var file = e.target.files && e.target.files[0]; if (!file) return;
+        e.target.value = '';
+        ui.compressImage(file, 320, 0.82, AVATAR_MAX_BYTES).then(function (src) {
+          var res = AN.store.setPhoto(src);
+          if (!res.ok) { ui.toast(res.error, 'error'); return; }
+          ui.toast(res.saved ? 'Updated na ang profile photo mo (' + Math.max(1, Math.round(ui.photoBytes(src) / 1024)) + ' KB).' : 'Na-set, pero full na ang browser storage kaya mawawala ito pag-refresh.', res.saved ? 'ok' : 'error');
+        }, function (err) { ui.toast(err.message, 'error'); });
+      });
+      if ($('#rmpphoto')) $('#rmpphoto').addEventListener('click', function () {
+        AN.store.setPhoto(null);
+        ui.toast('Na-remove ang profile photo. Default icon na ulit ang gamit.');
+      });
 
       $('#google').addEventListener('click', function () { attempt(AN.auth.signInWithGoogle(), 'Naka-sign in gamit ang Google.'); });
       $('#forgot').addEventListener('click', function () { attempt(AN.auth.requestPasswordReset($('#si-user').value), 'Sent na ang reset link sa email mo.'); });
@@ -137,7 +169,13 @@
 
   /* ================= ADMIN ================= */
   AN.views.admin = function (root) {
-    var q = '';
+    var q = '', page = 1, uq = '', upage = 1;
+    var PER_REPORTS = 50, PER_USERS = 30;
+
+    function contactLabel(id) {
+      var t = AN.CONTACT_TYPES.filter(function (x) { return x.id === id; })[0];
+      return t ? t.label : id;
+    }
 
     function render() {
       var s = AN.auth.current();
@@ -151,10 +189,19 @@
       var visible = all.filter(function (r) { return !r.hidden; });
       var queue = visible.filter(function (r) { return r.needsReview; });
       var count = function (g) { return visible.filter(function (r) { return AN.STATUSES[r.status].group === g; }).length; };
+      var urgent = visible.filter(ui.isUrgent).length;
       var byCat = AN.CATEGORIES.map(function (c) { return { c: c, n: visible.filter(function (r) { return r.category === c.id; }).length }; }).filter(function (x) { return x.n; }).sort(function (a, b) { return b.n - a.n; });
       var max = byCat.length ? byCat[0].n : 1;
       var needle = q.trim().toLowerCase();
-      var rows = all.filter(function (r) { return !needle || [r.id, r.title, r.city, r.province, r.reporter].join(' ').toLowerCase().indexOf(needle) !== -1; });
+      var rows = all.filter(function (r) { return !needle || [r.id, r.title, r.city, r.province, r.reporter, ui.catLabel(r)].join(' ').toLowerCase().indexOf(needle) !== -1; });
+      var pg = ui.paginate(rows, page, PER_REPORTS);
+      page = pg.page;
+      var uneedle = uq.trim().toLowerCase();
+      var users = AN.store.users().filter(function (u) { return !uneedle || [u.username, u.note, AN.ROLES[u.role]].join(' ').toLowerCase().indexOf(uneedle) !== -1; });
+      var upg = ui.paginate(users, upage, PER_USERS);
+      upage = upg.page;
+      var fb = AN.store.feedback();
+      var fbNew = fb.filter(function (x) { return x.status === 'new'; }).length;
 
       root.innerHTML =
         '<div class="page page--wide">' +
@@ -163,9 +210,11 @@
 
         '<div class="tiles">' +
         '<div class="tile tile--accent"><span>Pending review</span><b>' + queue.length + '</b></div>' +
+        '<div class="tile"><span class="t-urgent">Urgent, hindi pa fixed</span><b>' + urgent + '</b></div>' +
         '<div class="tile"><span class="t-bukas">Hindi pa na-fix</span><b>' + count('bukas') + '</b></div>' +
         '<div class="tile"><span class="t-aksyon">In progress</span><b>' + count('aksyon') + '</b></div>' +
         '<div class="tile"><span class="t-ayos">Fixed</span><b>' + count('ayos') + '</b></div>' +
+        '<div class="tile"><span>Contact messages</span><b>' + fbNew + '<span class="muted small"> new</span></b></div>' +
         '</div>' +
 
         '<section class="card stack-s"><h2>Reports na para i-review <span class="muted small">(' + queue.length + ')</span></h2>' +
@@ -174,34 +223,55 @@
             var dup = visible.filter(function (o) { return o.id !== r.id && o.category === r.category && AN.geo.distance(r.lat, r.lng, o.lat, o.lng) <= 50; }).length;
             var flag = dup ? ['Possible duplicate (' + dup + ')', 'bukas'] : r.locationSource === 'gps' && r.accuracy > 50 ? ['Weak GPS (±' + r.accuracy + ' m)', 'aksyon'] : ['No issue', 'ayos'];
             return '<tr><td><a class="cellreport" href="#/ulat/' + esc(r.id) + '"><img alt="" src="' + ui.photoSrc(ui.firstPhoto(r)) + '"><span><b>' + esc(r.title) + '</b><span class="muted small">' + esc(ui.catLabel(r)) + ' · ' + esc(r.id) + '</span></span></a></td>' +
-              '<td>' + esc(ui.placeLine(r) || 'No location') + '</td><td>@' + esc(r.reporter) + '<br><span class="muted small">' + ui.timeAgo(r.createdAt) + '</span></td>' +
-              '<td><span class="pill pill--' + flag[1] + '">' + esc(flag[0]) + '</span></td>' +
+              '<td>' + esc(ui.placeLine(r) || 'No location') + '</td><td>' + ui.userLink(r.reporter, 'xs') + '<br><span class="muted small">' + ui.timeAgo(r.createdAt) + '</span></td>' +
+              '<td><span class="pill pill--' + flag[1] + '">' + esc(flag[0]) + '</span>' + ui.urgentPill(r) + '</td>' +
               '<td><div class="btnrow"><button type="button" class="btn btn--dark btn--sm" data-act="approve" data-id="' + esc(r.id) + '">Approve</button><button type="button" class="btn btn--ghost btn--sm" data-act="reject" data-id="' + esc(r.id) + '">Reject</button></div></td></tr>';
           }).join('') + '</tbody></table></div>' : '<p class="empty">Walang pending review.</p>') +
         '</section>' +
 
         '<section class="card stack-s"><div class="titlerow"><h2>All reports <span class="muted small">(' + rows.length + ')</span></h2><div class="field field--inline"><label class="sr" for="aq">Search sa mga reports</label><input id="aq" type="search" placeholder="Search: number, title, lugar, user" value="' + esc(q) + '"></div></div>' +
+        '<p class="muted small">' + ui.countLine(pg, 'reports') + '</p>' +
         '<div class="tablewrap tablewrap--tall"><table><thead><tr><th>Report</th><th>Location</th><th>Status</th><th>Action</th></tr></thead><tbody>' +
-        rows.map(function (r) {
-          return '<tr' + (r.hidden ? ' class="is-hidden"' : '') + '><td><a href="#/ulat/' + esc(r.id) + '"><b>' + esc(r.title) + '</b></a><br><span class="muted small">' + esc(r.id) + ' · ' + esc(ui.catShort(r)) + ' · @' + esc(r.reporter) + (r.hidden ? ' · HIDDEN' : '') + '</span></td>' +
+        pg.items.map(function (r) {
+          return '<tr' + (r.hidden ? ' class="is-hidden"' : '') + '><td><a href="#/ulat/' + esc(r.id) + '"><b>' + esc(r.title) + '</b></a>' + (ui.isUrgent(r) ? ' ' + ui.urgentPill(r) : '') + '<br><span class="muted small">' + esc(r.id) + ' · ' + esc(ui.catShort(r)) + ' · </span>' + ui.userLink(r.reporter, 'xs', 'small') + (r.hidden ? ' <span class="muted small">· HIDDEN</span>' : '') + '</td>' +
             '<td>' + esc(r.city || '') + '<br><span class="muted small">' + esc(r.province || '') + '</span></td>' +
             '<td><label class="sr" for="st-' + esc(r.id) + '">Status ng ' + esc(r.id) + '</label><select id="st-' + esc(r.id) + '" data-status="' + esc(r.id) + '">' + Object.keys(AN.STATUSES).map(function (k) { return '<option value="' + k + '"' + (k === r.status ? ' selected' : '') + '>' + esc(AN.STATUSES[k].label) + '</option>'; }).join('') + '</select></td>' +
             '<td><div class="btnrow">' + (r.hidden ? '<button type="button" class="btn btn--ghost btn--sm" data-act="restore" data-id="' + esc(r.id) + '">Restore</button>' : '<button type="button" class="btn btn--ghost btn--sm" data-act="reject" data-id="' + esc(r.id) + '">Hide</button>') +
             (isAdmin ? '<button type="button" class="btn btn--ghost btn--sm btn--danger" data-act="delete" data-id="' + esc(r.id) + '">Delete</button>' : '') + '</div></td></tr>';
-        }).join('') + '</tbody></table></div></section>' +
+        }).join('') + '</tbody></table></div><div id="apager">' + ui.pagerHTML(pg) + '</div></section>' +
+
+        '<section class="card stack-s"><div class="titlerow"><h2>Contact Us messages <span class="muted small">(' + fb.length + ')</span></h2></div>' +
+        (fb.length ? fb.slice(0, ui.LIMITS.display).map(function (x) {
+          return '<div class="fbrow' + (x.status === 'new' ? ' is-new' : '') + '"><div class="fbrow__head"><b>' + esc(x.id) + '</b><span class="badge">' + esc(contactLabel(x.type)) + '</span>' +
+            '<span class="muted small">' + (x.by ? ui.userLink(x.by, 'xs', 'small') : esc(x.name || 'Anonymous')) + (x.email ? ' · ' + esc(x.email) : '') + ' · ' + ui.timeAgo(x.at) + '</span>' +
+            '<label class="sr" for="fb-' + esc(x.id) + '">Status ng ' + esc(x.id) + '</label><select id="fb-' + esc(x.id) + '" data-fb="' + esc(x.id) + '">' + ['new', 'read', 'done'].map(function (k) { return '<option value="' + k + '"' + (k === x.status ? ' selected' : '') + '>' + k.charAt(0).toUpperCase() + k.slice(1) + '</option>'; }).join('') + '</select>' +
+            (isAdmin ? '<button type="button" class="btn btn--ghost btn--sm btn--danger" data-fbdel="' + esc(x.id) + '">Delete</button>' : '') + '</div>' +
+            '<p>' + esc(x.message) + '</p></div>';
+        }).join('') : '<p class="empty">Wala pang message mula sa Contact Us.</p>') + '</section>' +
 
         '<div class="cols cols--even">' +
-        '<section class="card stack-s"><h2>Users at roles</h2>' + (isAdmin ? '' : '<p class="muted small">Super admin lang ang pwedeng mag-change ng role.</p>') +
-        AN.store.users().map(function (u) {
-          return '<div class="userrow"><div><b>@' + esc(u.username) + '</b><br><span class="muted small">' + esc(u.note) + (u.suspended ? ' · SUSPENDED' : '') + '</span></div>' +
+        '<section class="card stack-s"><div class="titlerow"><h2>Users at roles <span class="muted small">(' + users.length + ')</span></h2><div class="field field--inline"><label class="sr" for="auq">Search sa users</label><input id="auq" type="search" placeholder="Search: username, lugar, role" value="' + esc(uq) + '"></div></div>' +
+        (isAdmin ? '' : '<p class="muted small">Super admin lang ang pwedeng mag-change ng role.</p>') +
+        '<p class="muted small">' + ui.countLine(upg, 'users') + '</p>' +
+        upg.items.map(function (u) {
+          return '<div class="userrow">' + ui.userLink(u.username, 's') + '<div><span class="muted small">' + esc(u.note) + (u.suspended ? ' · SUSPENDED' : '') + ' · ' + AN.store.stats(u.username).reports + ' reports</span></div>' +
             '<label class="sr" for="role-' + esc(u.username) + '">Role ni ' + esc(u.username) + '</label><select id="role-' + esc(u.username) + '" data-role="' + esc(u.username) + '"' + (isAdmin ? '' : ' disabled') + '>' + Object.keys(AN.ROLES).map(function (k) { return '<option value="' + k + '"' + (k === u.role ? ' selected' : '') + '>' + esc(AN.ROLES[k]) + '</option>'; }).join('') + '</select>' +
             '<button type="button" class="btn btn--ghost btn--sm" data-suspend="' + esc(u.username) + '"' + (isAdmin ? '' : ' disabled') + '>' + (u.suspended ? 'Restore' : 'Suspend') + '</button></div>';
-        }).join('') + '</section>' +
+        }).join('') + '<div id="aupager">' + ui.pagerHTML(upg) + '</div></section>' +
         '<section class="card stack-s"><h2>Reports per category</h2>' +
         byCat.map(function (x) { return '<div class="bar"><span>' + esc(x.c.label) + '</span><div class="bar__track"><div style="width:' + Math.round(x.n / max * 100) + '%"></div></div><b>' + x.n + '</b></div>'; }).join('') +
-        '<p class="muted small">Total: ' + visible.length + ' reports na visible sa public</p></section>' +
+        '<p class="muted small">Total: ' + visible.length + ' reports na visible sa public · ' + AN.store.users().length + ' users</p></section>' +
         '</div></div>';
       wire(isAdmin);
+    }
+
+    function keepCaret(sel, fn) {
+      return function (e) {
+        var pos = e.target.selectionStart;
+        fn(e);
+        render();
+        var el = root.querySelector(sel); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (err) { /* ayos lang */ } }
+      };
     }
 
     function wire(isAdmin) {
@@ -227,14 +297,29 @@
       root.querySelectorAll('[data-suspend]').forEach(function (b) {
         b.addEventListener('click', function () {
           var name = b.getAttribute('data-suspend');
-          var u = AN.store.users().filter(function (x) { return x.username === name; })[0];
+          var u = AN.store.user(name);
           AN.store.setUser(name, { suspended: !u.suspended });
         });
       });
-      $('#aq').addEventListener('input', function (e) {
-        q = e.target.value; var pos = e.target.selectionStart;
-        render();
-        var el = root.querySelector('#aq'); el.focus(); try { el.setSelectionRange(pos, pos); } catch (err) { /* ayos lang */ }
+      root.querySelectorAll('[data-fb]').forEach(function (sel) {
+        sel.addEventListener('change', function () { AN.store.setFeedbackStatus(sel.getAttribute('data-fb'), sel.value); ui.toast('Na-update ang message status.', 'ok'); });
+      });
+      root.querySelectorAll('[data-fbdel]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var id = b.getAttribute('data-fbdel');
+          if (!isAdmin || !window.confirm('I-delete ang message ' + id + '? Hindi na ito ma-undo.')) return;
+          AN.store.removeFeedback(id); ui.toast('Na-delete ang ' + id + '.');
+        });
+      });
+      $('#aq').addEventListener('input', keepCaret('#aq', function (e) { q = e.target.value; page = 1; }));
+      $('#auq').addEventListener('input', keepCaret('#auq', function (e) { uq = e.target.value; upage = 1; }));
+      $('#apager').addEventListener('click', function (e) {
+        var b = e.target.closest('[data-page]'); if (!b || b.disabled) return;
+        page = +b.getAttribute('data-page'); render();
+      });
+      $('#aupager').addEventListener('click', function (e) {
+        var b = e.target.closest('[data-page]'); if (!b || b.disabled) return;
+        upage = +b.getAttribute('data-page'); render();
       });
       $('#export').addEventListener('click', function () {
         var blob = new Blob([AN.store.exportJSON()], { type: 'application/json' });

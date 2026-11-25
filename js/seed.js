@@ -1,6 +1,8 @@
 /* Ayusin Natin — seed demo data.
    Lahat ng ulat, user at bilang dito ay HALIMBAWA lang.
-   Kapag may database na, ito ang papalitan ng totoong query (tingnan ang README). */
+   Kapag may database na, ito ang papalitan ng totoong query (tingnan ang README).
+   Bukod sa 48 na hand-written na report at 9 na named demo user, may generated na demo users at reports
+   (deterministic, pareho sa bawat reset) para makita ang pagination, search at 450 na display limit. */
 (function () {
   'use strict';
   var AN = (window.AN = window.AN || {});
@@ -39,6 +41,24 @@
     { id: 'abala', label: 'Minor lang' },
     { id: 'delikado', label: 'Dangerous' },
     { id: 'agaran', label: 'Urgent' }
+  ];
+
+  // Uri ng message sa Contact Us (suggestion o additional sa system, hindi report ng problema sa lugar).
+  AN.CONTACT_TYPES = [
+    { id: 'suggestion', label: 'Suggestion' },
+    { id: 'feature', label: 'Additional feature' },
+    { id: 'bug', label: 'Bug o error sa system' },
+    { id: 'question', label: 'Question' },
+    { id: 'iba', label: 'Iba pa' }
+  ];
+
+  // Points para sa ranking ng top contributors (tingnan ang AN.store.ranking sa js/store.js).
+  AN.SCORING = [
+    { key: 'reports', label: 'Report na na-submit', points: 5 },
+    { key: 'fixed', label: 'Report mo na na-fix na', points: 3 },
+    { key: 'fixes', label: 'Fix update na may photo sa report ng iba', points: 4 },
+    { key: 'confirms', label: 'Confirmation na fixed na', points: 1 },
+    { key: 'affected', label: '"Affected din ako" sa report ng iba', points: 1 }
   ];
 
   // Totoong larawan para sa demo reports: Wikimedia Commons, lahat kuha sa Pilipinas, CC0 / CC BY / CC BY-SA / public domain.
@@ -157,6 +177,13 @@
 
   AN.ROLES = { user: 'User', moderator: 'Moderator', lgu: 'LGU / Agency', admin: 'Super Admin' };
 
+  // Ilang generated na demo user at report ang idadagdag (para lumampas sa 450 na display limit).
+  var TOTAL_USERS = 600;
+  var EXTRA_REPORTS = 470;
+
+  var FIRST = ['ana', 'jose', 'maria', 'juan', 'pedro', 'liza', 'mark', 'bea', 'rod', 'ben', 'carlo', 'grace', 'joy', 'nina', 'paolo', 'ramon', 'tess', 'vic', 'wendy', 'yna', 'dan', 'ella', 'fe', 'gio', 'hanna', 'ivy', 'jun', 'kat', 'leo', 'mon', 'noel', 'pia', 'ric', 'sam', 'tin', 'vina', 'lito', 'nene', 'boyet', 'cris', 'dindo', 'erika', 'jm', 'kim', 'lea', 'migs', 'nicole', 'ogie', 'rhea', 'sol'];
+  var LAST = ['reyes', 'santos', 'cruz', 'bautista', 'ocampo', 'garcia', 'mendoza', 'torres', 'flores', 'ramos', 'gonzales', 'aquino', 'castillo', 'villanueva', 'delacruz', 'navarro', 'salazar', 'mercado', 'domingo', 'pascual', 'rivera', 'soriano', 'lim', 'tan', 'ong', 'dizon', 'evangelista', 'fernandez', 'ignacio', 'jimenez', 'lopez', 'manalo', 'natividad', 'ortiz', 'perez', 'quizon', 'rosales', 'sarmiento', 'tolentino', 'valdez'];
+
   // [lungsod, kategorya, status, ilang araw na, pamagat, paglalarawan, apektado, lala, palatandaan]
   var ROWS = [
     ['Quezon City', 'kalsada', 'kumpirmado', 12, 'Malalim na lubak sa tapat ng palengke', 'Malalim na lubak, dalawang motor na ang sumemplang ngayong linggo.', 18, 'delikado', 'Tapat ng palengke'],
@@ -210,56 +237,115 @@
   ];
 
   var DAY = 86400000;
+  var ORDER = ['naiulat', 'na-verify', 'inaaksyunan', 'naayos', 'kumpirmado'];
+
+  /** Simpleng deterministic na random (LCG) para pareho ang generated data sa bawat reset. */
+  function rng(seed) {
+    var s = seed >>> 0;
+    return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  }
+
+  /** Isang demo report mula sa template row. */
+  function makeReport(o) {
+    var age = o.now - o.created;
+    var reached = ORDER.indexOf(o.status);
+    var at = function (f) { return new Date(o.created + age * f).toISOString(); };
+    var history = [{ type: 'naiulat', by: o.reporter, role: 'user', at: at(0), note: o.row[5] }];
+    if (reached >= 1) history.push({ type: 'na-verify', by: 'maria.santos', role: 'moderator', at: at(0.06), note: 'Malinaw ang photo at tugma ang location.' });
+    if (reached >= 2) history.push({ type: 'inaaksyunan', by: 'lgu_engineering', role: 'lgu', at: at(0.4), note: 'Naka-schedule na ang repair.' });
+    if (reached >= 3) history.push({ type: 'naayos', by: o.other, role: 'user', at: at(0.75), note: 'Fixed na. Nag-upload ng bagong photo bilang proof.' });
+    if (reached >= 4) history.push({ type: 'kumpirmado', by: o.reporter, role: 'user', at: at(0.9), note: 'Na-confirm ng nag-report at ng ibang residente.' });
+    var photos = [{ kind: 'before', src: 'demo:' + o.row[1] + ':before', by: o.reporter, at: at(0) }];
+    if (reached >= 3) photos.push({ kind: 'after', src: 'demo:' + o.row[1] + ':after', by: o.other, at: at(0.75) });
+    return {
+      id: 'AN-' + String(o.n).padStart(6, '0'),
+      title: o.row[4],
+      description: o.row[5],
+      category: o.row[1],
+      categoryOther: '',
+      severity: o.severity,
+      status: o.status,
+      hidden: false,
+      needsReview: !!o.needsReview,
+      lat: +(o.place.lat + o.dLat).toFixed(6),
+      lng: +(o.place.lng + o.dLng).toFixed(6),
+      accuracy: null,
+      locationSource: 'seed',
+      region: o.place.region,
+      province: o.place.province,
+      city: o.place.city,
+      barangay: '',
+      landmark: o.row[8],
+      photos: photos,
+      reporter: o.reporter,
+      createdAt: at(0),
+      updatedAt: history[history.length - 1].at,
+      affected: o.affected,
+      affectedBy: o.affectedBy || [],
+      confirmations: reached >= 4 ? 4 : reached === 3 ? 1 : 0,
+      confirmedBy: [],
+      history: history,
+      termsAcceptedAt: at(0),
+      demo: true
+    };
+  }
 
   AN.buildSeed = function (now) {
-    var plain = AN.DEMO_USERS.filter(function (u) { return u.role === 'user'; });
+    var rand = rng(20251125);
+    var pick = function (arr) { return arr[Math.floor(rand() * arr.length)]; };
+
+    /* ---- Users: 9 na named demo user + generated na residents ---- */
+    var users = AN.DEMO_USERS.map(function (u, i) {
+      return { username: u.username, role: u.role, note: u.note, suspended: false, photo: null, joinedAt: new Date(now - (420 + i * 17) * DAY).toISOString() };
+    });
+    var taken = {};
+    users.forEach(function (u) { taken[u.username] = true; });
+    var guard = 0;
+    while (users.length < TOTAL_USERS && guard++ < 20000) {
+      var f = pick(FIRST), l = pick(LAST), style = Math.floor(rand() * 4), name;
+      if (style === 0) name = f + '.' + l;
+      else if (style === 1) name = f + '_' + l;
+      else if (style === 2) name = f + l + (10 + Math.floor(rand() * 90));
+      else name = f + '.' + l.charAt(0) + '.' + Math.floor(rand() * 999);
+      name = name.replace(/[^a-z0-9._]/g, '').slice(0, 20);
+      if (name.length < 3 || taken[name]) continue;
+      taken[name] = true;
+      users.push({ username: name, role: 'user', note: 'Resident · ' + pick(AN.PLACES).city, suspended: false, photo: null, joinedAt: new Date(now - Math.floor(20 + rand() * 700) * DAY).toISOString() });
+    }
+
+    /* ---- Reports: 48 na hand-written (pinakabago) + generated ---- */
+    var named = AN.DEMO_USERS.filter(function (u) { return u.role === 'user'; });
     var reports = ROWS.map(function (row, i) {
       var place = AN.PLACES.filter(function (p) { return p.city === row[0]; })[0];
-      var created = now - row[3] * DAY - ((i * 7) % 11) * 3600000;
-      var age = now - created;
-      var reporter = plain[i % plain.length].username;
-      var other = plain[(i + 2) % plain.length].username;
-      var status = row[2];
-      var order = ['naiulat', 'na-verify', 'inaaksyunan', 'naayos', 'kumpirmado'];
-      var reached = order.indexOf(status);
-      var at = function (f) { return new Date(created + age * f).toISOString(); };
-      var history = [{ type: 'naiulat', by: reporter, role: 'user', at: at(0), note: row[5] }];
-      if (reached >= 1) history.push({ type: 'na-verify', by: 'maria.santos', role: 'moderator', at: at(0.06), note: 'Malinaw ang photo at tugma ang location.' });
-      if (reached >= 2) history.push({ type: 'inaaksyunan', by: 'lgu_engineering', role: 'lgu', at: at(0.4), note: 'Naka-schedule na ang repair.' });
-      if (reached >= 3) history.push({ type: 'naayos', by: other, role: 'user', at: at(0.75), note: 'Fixed na. Nag-upload ng bagong photo bilang proof.' });
-      if (reached >= 4) history.push({ type: 'kumpirmado', by: reporter, role: 'user', at: at(0.9), note: 'Na-confirm ng nag-report at ng ibang residente.' });
-      var photos = [{ kind: 'before', src: 'demo:' + row[1] + ':before', by: reporter, at: at(0) }];
-      if (reached >= 3) photos.push({ kind: 'after', src: 'demo:' + row[1] + ':after', by: other, at: at(0.75) });
-      return {
-        id: 'AN-' + String(101 + i).padStart(6, '0'),
-        title: row[4],
-        description: row[5],
-        category: row[1],
-        severity: row[7],
-        status: status,
-        hidden: false,
-        needsReview: status === 'naiulat' && row[3] <= 2,
-        lat: +(place.lat + (((i * 37) % 9) - 4) * 0.0011).toFixed(6),
-        lng: +(place.lng + (((i * 53) % 9) - 4) * 0.0011).toFixed(6),
-        accuracy: null,
-        locationSource: 'seed',
-        region: place.region,
-        province: place.province,
-        city: place.city,
-        barangay: '',
-        landmark: row[8],
-        photos: photos,
-        reporter: reporter,
-        createdAt: at(0),
-        updatedAt: history[history.length - 1].at,
-        affected: row[6],
-        affectedBy: [],
-        confirmations: reached >= 4 ? 4 : reached === 3 ? 1 : 0,
-        confirmedBy: [],
-        history: history,
-        demo: true
-      };
+      var reporter = named[i % named.length].username;
+      return makeReport({
+        n: 101 + i, row: row, place: place, now: now,
+        created: now - row[3] * DAY - ((i * 7) % 11) * 3600000,
+        status: row[2], severity: row[7], affected: row[6], reporter: reporter, other: named[(i + 2) % named.length].username,
+        needsReview: row[2] === 'naiulat' && row[3] <= 2,
+        dLat: (((i * 37) % 9) - 4) * 0.0011, dLng: (((i * 53) % 9) - 4) * 0.0011
+      });
     });
-    return { reports: reports, users: AN.DEMO_USERS.map(function (u) { return { username: u.username, role: u.role, note: u.note, suspended: false }; }) };
+    var pool = users.filter(function (u) { return u.role === 'user'; });
+    var SEV = ['abala', 'delikado', 'agaran'];
+    for (var k = 0; k < EXTRA_REPORTS; k++) {
+      var row = ROWS[k % ROWS.length];
+      var u = rand();
+      var status = u < 0.3 ? 'naiulat' : u < 0.45 ? 'na-verify' : u < 0.65 ? 'inaaksyunan' : u < 0.8 ? 'naayos' : 'kumpirmado';
+      // Skewed ang pagpili ng reporter para may lumitaw na mga "top contributor".
+      var reporter = pool[Math.floor(Math.pow(rand(), 2.2) * pool.length)].username;
+      var others = [];
+      var nAff = Math.floor(rand() * 4);
+      for (var a = 0; a < nAff; a++) { var o = pick(pool).username; if (o !== reporter && others.indexOf(o) === -1) others.push(o); }
+      reports.push(makeReport({
+        n: 101 + reports.length, row: row, place: pick(AN.PLACES), now: now,
+        created: now - Math.floor(3 + rand() * 240) * DAY - Math.floor(rand() * DAY),
+        status: status, severity: rand() < 0.25 ? pick(SEV) : row[7], affected: 1 + others.length + Math.floor(rand() * 40),
+        reporter: reporter, other: pick(pool).username, affectedBy: others, needsReview: false,
+        dLat: (rand() - 0.5) * 0.03, dLng: (rand() - 0.5) * 0.03
+      }));
+    }
+
+    return { reports: reports, users: users, nextId: 101 + reports.length };
   };
 })();
