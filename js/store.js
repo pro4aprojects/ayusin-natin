@@ -63,7 +63,7 @@
       var at = nowISO();
       var report = {
         id: 'AN-' + String(state.nextId++).padStart(6, '0'),
-        title: data.title, description: data.description || '', category: data.category, severity: data.severity || 'abala',
+        title: data.title, description: data.description || '', category: data.category, categoryOther: data.categoryOther || '', severity: data.severity || 'abala',
         status: 'naiulat', hidden: false, needsReview: true,
         lat: data.lat, lng: data.lng, accuracy: data.accuracy == null ? null : Math.round(data.accuracy), locationSource: data.locationSource || 'pin',
         region: data.region || '', province: data.province || '', city: data.city || '', barangay: data.barangay || '', landmark: data.landmark || '',
@@ -102,7 +102,7 @@
       var strong = s.username === r.reporter || s.role === 'moderator' || s.role === 'admin';
       if (strong || r.confirmations >= 3) {
         r.status = 'kumpirmado';
-        r.history.push({ type: 'kumpirmado', by: s.username, role: s.role, at: nowISO(), note: strong ? 'Na-confirm ng ' + (s.username === r.reporter ? 'nag-report' : AN.ROLES[s.role].toLowerCase()) + '.' : 'Sapat na ang confirmations ng mga residente.' });
+        r.history.push({ type: 'kumpirmado', by: s.username, role: s.role, at: nowISO(), note: strong ? 'Na-confirm ng ' + (s.username === r.reporter ? 'reporter' : AN.ROLES[s.role].toLowerCase()) + '.' : 'Sapat na ang confirmations ng residents.' });
       }
       r.updatedAt = nowISO();
       commit();
@@ -143,7 +143,7 @@
       var r = find(id); var s = me();
       if (!r || !s || !AN.STATUSES[status]) return false;
       r.status = status;
-      r.history.push({ type: status, by: s.username, role: s.role, at: nowISO(), note: 'Binago ng ' + AN.ROLES[s.role].toLowerCase() + '.' });
+      r.history.push({ type: status, by: s.username, role: s.role, at: nowISO(), note: 'In-update ng ' + AN.ROLES[s.role].toLowerCase() + '.' });
       r.updatedAt = nowISO();
       commit();
       return true;
@@ -191,13 +191,13 @@
       pw = pw || '';
       return [
         { label: 'At least 10 characters', ok: pw.length >= 10 },
-        { label: 'May malaki at maliit na letra', ok: /[a-z]/.test(pw) && /[A-Z]/.test(pw) },
-        { label: 'May numero', ok: /[0-9]/.test(pw) },
+        { label: 'May uppercase at lowercase letter', ok: /[a-z]/.test(pw) && /[A-Z]/.test(pw) },
+        { label: 'May number', ok: /[0-9]/.test(pw) },
         { label: 'May symbol, gaya ng # @ ! %', ok: /[^A-Za-z0-9]/.test(pw) }
       ];
     },
     usernameError: function (name) {
-      if (!/^[a-z0-9._]{3,20}$/.test(name || '')) return 'Gumamit ng 3 hanggang 20 maliliit na letra, numero, tuldok o underscore.';
+      if (!/^[a-z0-9._]{3,20}$/.test(name || '')) return 'Gumamit ng 3 hanggang 20 lowercase letters, numbers, dot o underscore.';
       return '';
     }
   };

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var AN = (window.AN = window.AN || {});
-  var MONTHS = ['Ene', 'Peb', 'Mar', 'Abr', 'May', 'Hun', 'Hul', 'Ago', 'Set', 'Okt', 'Nob', 'Dis'];
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   function esc(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
@@ -14,6 +14,16 @@
     return AN.CATEGORIES.filter(function (c) { return c.id === id; })[0] || AN.CATEGORIES[AN.CATEGORIES.length - 1];
   }
 
+  /** Label ng category ng isang report. Kapag "Iba pa" at may specify, iyon ang ipinapakita. */
+  function catLabel(r) {
+    var c = cat(r.category);
+    return r.category === 'iba' && r.categoryOther ? c.label + ': ' + r.categoryOther : c.label;
+  }
+  function catShort(r) {
+    var c = cat(r.category);
+    return r.category === 'iba' && r.categoryOther ? r.categoryOther : c.short;
+  }
+
   function fmtDate(iso) {
     var d = new Date(iso);
     return MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
@@ -21,12 +31,12 @@
 
   function timeAgo(iso) {
     var mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-    if (mins < 1) return 'ngayon lang';
-    if (mins < 60) return mins + ' minuto na';
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + ' min ago';
     var hrs = Math.round(mins / 60);
-    if (hrs < 24) return hrs + ' oras na';
+    if (hrs < 24) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
     var days = Math.round(hrs / 24);
-    if (days <= 30) return days + ' araw na';
+    if (days <= 30) return days + (days === 1 ? ' day ago' : ' days ago');
     return fmtDate(iso);
   }
 
@@ -89,7 +99,7 @@
       '<img class="rcard__img" alt="" loading="lazy" src="' + photoSrc(firstPhoto(r)) + '">' +
       '<span class="rcard__body">' +
       '<span class="rcard__title">' + esc(r.title) + '</span>' +
-      '<span class="rcard__meta">' + esc(cat(r.category).short) + ' · ' + esc(r.city || 'Walang city') + ' · ' + timeAgo(r.createdAt) + '</span>' +
+      '<span class="rcard__meta">' + esc(catShort(r)) + ' · ' + esc(r.city || 'No city') + ' · ' + timeAgo(r.createdAt) + '</span>' +
       '<span class="rcard__row">' + statusPill(r.status) + '<span class="muted small">' + r.affected + ' affected din</span></span>' +
       '</span></a>';
   }
@@ -107,23 +117,37 @@
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 4700);
   }
 
-  /** Pinaliliit ang litrato sa browser bago i-save (max 1100px, JPEG). */
+  /** Pinaliliit ang litrato sa browser bago i-save: JPEG na max MAX_PHOTO_BYTES (50 KB) para magaan at mabilis mag-load.
+      Binababa muna ang quality hanggang 0.5, tapos ang sukat (85% kada ulit), hanggang pumasok sa limit. */
+  var MAX_PHOTO_BYTES = 50 * 1024;
+  function dataUrlBytes(dataUrl) { return Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4); }
   function compressImage(file, maxDim, quality) {
-    maxDim = maxDim || 1100; quality = quality || 0.72;
+    maxDim = maxDim || 960; quality = quality || 0.7;
     return new Promise(function (resolve, reject) {
-      if (!file || !/^image\//.test(file.type)) return reject(new Error('Photo lang ang pwedeng i-upload.'));
+      if (!file || !/^image\//.test(file.type)) return reject(new Error('Photo files lang ang accepted.'));
       var url = URL.createObjectURL(file);
       var img = new Image();
       img.onload = function () {
-        var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
         var canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(img.width * scale));
-        canvas.height = Math.max(1, Math.round(img.height * scale));
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(url);
-        try { resolve(canvas.toDataURL('image/jpeg', quality)); } catch (e) { reject(new Error('Hindi mabasa ang photo.')); }
+        var ctx = canvas.getContext('2d');
+        function encode(dim, q) {
+          var scale = Math.min(1, dim / Math.max(img.width, img.height));
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          return canvas.toDataURL('image/jpeg', q);
+        }
+        try {
+          var dim = maxDim, q = quality, out = encode(dim, q), guard = 0;
+          while (dataUrlBytes(out) > MAX_PHOTO_BYTES && guard++ < 14) {
+            if (q > 0.5) q = Math.max(0.5, q - 0.1); else dim = Math.round(dim * 0.85);
+            out = encode(dim, q);
+          }
+          URL.revokeObjectURL(url);
+          resolve(out);
+        } catch (e) { URL.revokeObjectURL(url); reject(new Error('Hindi ma-read ang photo.')); }
       };
-      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('Hindi mabasa ang photo.')); };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('Hindi ma-read ang photo.')); };
       img.src = url;
     });
   }
@@ -179,15 +203,15 @@
     },
     errorText: function (err) {
       var code = err && err.code;
-      if (code === 'denied') return 'Hindi na-allow ang location. I-enable ang location permission ng site na ito sa browser, o ilagay na lang ang pin sa map.';
-      if (code === 'insecure') return 'Gumagana lang ang location sa https o localhost. Ilagay muna ang pin sa map.';
-      if (code === 'unsupported') return 'Hindi supported ng browser na ito ang location. Ilagay ang pin sa map.';
-      if (code === 'unavailable') return 'Hindi makuha ang location ngayon. I-on ang GPS o Location ng device at i-try ulit.';
-      return 'Natagalan ang pagkuha ng location. I-try ulit sa open na lugar, o ilagay ang pin sa map.';
+      if (code === 'denied') return 'Hindi na-allow ang location. I-enable ang location permission ng site na ito sa browser settings, tapos i-tap ulit.';
+      if (code === 'insecure') return 'Gumagana lang ang location sa https o localhost.';
+      if (code === 'unsupported') return 'Hindi supported ng browser na ito ang location.';
+      if (code === 'unavailable') return 'Hindi makuha ang location ngayon. I-on ang GPS o Location ng phone at i-try ulit.';
+      return 'Na-timeout ang pagkuha ng location. I-try ulit sa open na lugar.';
     }
   };
 
-  AN.ui = { esc: esc, cat: cat, fmtDate: fmtDate, timeAgo: timeAgo, statusPill: statusPill, demoPhoto: demoPhoto, photoSrc: photoSrc, photoCredit: photoCredit, firstPhoto: firstPhoto, placeLine: placeLine, reportCard: reportCard, toast: toast, compressImage: compressImage };
+  AN.ui = { esc: esc, cat: cat, catLabel: catLabel, catShort: catShort, fmtDate: fmtDate, timeAgo: timeAgo, statusPill: statusPill, demoPhoto: demoPhoto, photoSrc: photoSrc, photoCredit: photoCredit, firstPhoto: firstPhoto, placeLine: placeLine, reportCard: reportCard, toast: toast, compressImage: compressImage, photoBytes: dataUrlBytes, MAX_PHOTO_BYTES: MAX_PHOTO_BYTES };
   AN.geo = geo;
 
   /* ---------- Mapa: MapLibre GL + OpenFreeMap (vector tiles, 3D na gusali) ----------
@@ -258,7 +282,7 @@
     this.sync = function () {
       var flat = map.getPitch() < 5;
       self.btn.textContent = flat ? '3D' : '2D';
-      self.btn.title = flat ? 'Show 3D buildings' : 'Balik sa flat na map';
+      self.btn.title = flat ? 'Show 3D buildings' : 'Back to flat map';
       self.btn.setAttribute('aria-label', self.btn.title);
     };
     map.on('pitchend', this.sync);
@@ -338,8 +362,12 @@
     [['map', 'Map'], ['satellite', 'Satellite']].forEach(function (o) {
       var b = document.createElement('button');
       b.type = 'button';
-      b.textContent = o[1];
       b.title = o[1] + ' view';
+      // Maliit na arrow na nakaturo sa button na hindi pa napipili (CSS ang animation; nakatago sa naka-on).
+      b.innerHTML = '<span class="an-layers__arrow" aria-hidden="true"><svg viewBox="0 0 16 20" width="16" height="20" focusable="false">' +
+        '<path d="M8 2v13M3 10.5 8 16l5-5.5" fill="none" stroke="#0E2238" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="M8 2v13M3 10.5 8 16l5-5.5" fill="none" stroke="#FFC61A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+      b.appendChild(document.createTextNode(o[1]));
       b.addEventListener('click', function () { rememberBasemap(o[0]); setBasemap(map, o[0]); });
       self.btns[o[0]] = b;
       self.el.appendChild(b);
@@ -472,10 +500,53 @@
     meDot: function () { return domEl('medot'); },
 
     /** Nakakumpol na mga ulat gamit ang sariling clustering ng MapLibre.
-        Ibinabalik: { set(reports), clear() }. onClick(report) kapag pinindot ang isang ulat. */
+        Kapag malapit na ang zoom (THUMB_ZOOM pataas), lumalabas na agad ang thumbnail ng bawat report
+        nang hindi na kailangang i-click; lumalaki pa ito habang lumalapit.
+        Ibinabalik: { set(reports), clear() }. onClick(id, lngLat) kapag pinindot ang isang ulat o thumbnail. */
     reports: function (map, onClick) {
-      var SRC = 'an-reports';
+      var SRC = 'an-reports', THUMB_ZOOM = 13;
       var data = { type: 'FeatureCollection', features: [] };
+      var byId = {}, thumbs = {};
+
+      function thumbSize(z) { return z >= 16.5 ? 'lg' : z >= 14.5 ? 'md' : 'sm'; }
+
+      function thumbMarker(r, lngLat) {
+        var wrap = document.createElement('div'); // MapLibre ang nagpo-position dito (transform), kaya hiwalay ang button
+        wrap.className = 'mapthumb-wrap';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mapthumb mapthumb--' + (AN.STATUSES[r.status] || AN.STATUSES.naiulat).group;
+        btn.title = r.title;
+        btn.setAttribute('aria-label', 'Report: ' + r.title);
+        var img = document.createElement('img');
+        img.alt = ''; img.decoding = 'async';
+        img.src = photoSrc(firstPhoto(r)); // parehong src ng list card, kaya naka-cache na sa browser
+        btn.appendChild(img);
+        btn.addEventListener('click', function (e) { e.stopPropagation(); if (onClick) onClick(r.id, lngLat.slice()); });
+        wrap.appendChild(btn);
+        return new window.maplibregl.Marker({ element: wrap, anchor: 'bottom', offset: [0, -8] }).setLngLat(lngLat).addTo(map);
+      }
+
+      /** Ini-sync ang thumbnails sa mga report na kasalukuyang nakikita (hindi naka-cluster) sa viewport. */
+      function syncThumbs() {
+        if (!map.getLayer('an-points')) return;
+        var z = map.getZoom(), want = {};
+        if (z >= THUMB_ZOOM) {
+          var feats = [];
+          try { feats = map.queryRenderedFeatures({ layers: ['an-points'] }); } catch (e) { feats = []; }
+          feats.forEach(function (f) {
+            var id = f.properties.id;
+            if (!want[id] && byId[id]) want[id] = f.geometry.coordinates.slice();
+          });
+        }
+        Object.keys(thumbs).forEach(function (id) { if (!want[id]) { thumbs[id].remove(); delete thumbs[id]; } });
+        var size = thumbSize(z);
+        Object.keys(want).forEach(function (id) {
+          if (!thumbs[id]) thumbs[id] = thumbMarker(byId[id], want[id]);
+          thumbs[id].getElement().setAttribute('data-size', size);
+        });
+      }
+
       whenReady(map, function () {
         if (map.getSource(SRC)) return;
         map.addSource(SRC, { type: 'geojson', data: data, cluster: true, clusterMaxZoom: 15, clusterRadius: 46 });
@@ -512,19 +583,24 @@
           map.on('mouseenter', id, function () { map.getCanvas().style.cursor = 'pointer'; });
           map.on('mouseleave', id, function () { map.getCanvas().style.cursor = ''; });
         });
+        // 'idle' = tapos nang mag-render (kasama ang bagong data at tiles); 'moveend' para mabilis pagkatapos mag-pan/zoom.
+        map.on('moveend', syncThumbs);
+        map.on('idle', syncThumbs);
       });
-      function push() { var s = map.getSource(SRC); if (s) s.setData(data); }
+      function push() { var s = map.getSource(SRC); if (s) s.setData(data); syncThumbs(); }
       return {
         set: function (list) {
+          byId = {};
           data = {
             type: 'FeatureCollection',
             features: list.map(function (r) {
+              byId[r.id] = r;
               return { type: 'Feature', geometry: { type: 'Point', coordinates: [r.lng, r.lat] }, properties: { id: r.id, group: (AN.STATUSES[r.status] || AN.STATUSES.naiulat).group } };
             })
           };
           whenReady(map, push);
         },
-        clear: function () { data = { type: 'FeatureCollection', features: [] }; whenReady(map, push); }
+        clear: function () { byId = {}; data = { type: 'FeatureCollection', features: [] }; whenReady(map, push); }
       };
     },
 

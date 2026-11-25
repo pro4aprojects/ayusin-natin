@@ -24,7 +24,7 @@ Buksan ang <http://localhost:8080>.
 - Kailangan ng internet (at WebGL) para sa mapa (MapLibre GL + OpenFreeMap vector tiles, may 3D na gusali mula zoom 14) at sa font. Kapag wala, gumagana pa rin ang listahan at mga form.
 - Walang API key ang OpenFreeMap. Nasa `MAP_STYLE` sa `js/ui.js` ang style URL; palitan lang ito kung lilipat sa ibang provider o sariling tiles.
 - May **Map / Satellite** na switch sa bawat mapa. Esri World Imagery (walang key) ang satellite; nananatili ang labels at 3D na gusali mula sa vector style. Naaalala sa `localStorage` ang pinili.
-- Gumagana lang ang **Gamitin ang current location ko** sa `localhost` o `https`. Para masubukan sa phone, i-deploy sa kahit anong static host na may https (hal. GitHub Pages, Netlify, Cloudflare Pages).
+- Gumagana lang ang **Use current location** sa `localhost` o `https`. Para masubukan sa phone, i-deploy sa kahit anong static host na may https (hal. GitHub Pages, Netlify, Cloudflare Pages).
 - Taglish ang UI text: casual na Tagalog, English para sa mga terminong mas madaling maintindihan (Report, Fixed, In progress, Location).
 
 ## Mga demo account
@@ -40,24 +40,28 @@ index.html
 css/styles.css
 js/seed.js                  kategorya, status, mga lungsod, demo users, 48 demo na ulat
 js/store.js                 DATA LAYER + AUTH (dito ikakabit ang backend)
-js/ui.js                    helpers, pag-compress ng litrato, lokasyon (AN.geo), MapLibre helpers (AN.mapkit)
+js/ui.js                    helpers, pag-compress ng litrato (max 50 KB), lokasyon (AN.geo), MapLibre helpers (AN.mapkit)
+img/logo.jpg, logo-hq.png   logo (in-upload na design, Lanczos upscale 4x: 1024px para sa web, 1692px na master); favicon.png at apple-touch-icon.png = square crop ng emblem
 js/views-public.js          Mapa (home), Mga Ulat, Detalye ng ulat
 js/views-report.js          Mag-ulat (form)
 js/views-account-admin.js   Account at Administrator
 js/app.js                   hash router at header
 ```
 
-## Lokasyon sa form (hakbang 3)
+## Photo at location sa form
 
-Tatlong paraan, lahat dumadaan sa `setPoint()` sa `js/views-report.js`:
+**Photo (step 1).** Camera lang: `<input type="file" accept="image/*" capture="environment">`, walang gallery/upload na button. Sa phone, diretso itong nagbubukas ng camera; sa desktop browser (walang `capture` support) lumalabas pa rin ang file picker. Bawat photo ay nire-resize at nico-compress sa browser (`AN.ui.compressImage` sa `js/ui.js`) hanggang **max 50 KB** (JPEG; binababa muna ang quality hanggang 0.5, tapos ang sukat) para magaan ang storage at mabilis mag-load. Pareho ito sa AFTER photo sa **Update status**.
 
-1. **Gamitin ang current location ko** — `AN.geo.locate()` sa `js/ui.js`. Naka-`enableHighAccuracy`, nakikinig nang hanggang 10 segundo, at kinukuha ang pinakatumpak na basa (humihinto agad kapag ±15 m o mas maliit). Ipinapakita ang katumpakan at bilog nito sa mapa. Kapag lampas ±50 m, pinapaalalahanan ang user na i-drag ang pin.
-2. **I-tap ang mapa o i-drag ang pin.**
-3. **Pumili ng lungsod** — inilalagay ang pin sa gitna ng lungsod, pero hindi puwedeng isumite hangga't hindi naililipat sa eksaktong lugar.
+**Category (step 2).** Kapag **Iba pa** ang pinili, may required na field para i-specify ang problema (`categoryOther`), at iyon ang lumalabas bilang category sa cards at details.
 
-Sinusuri rin kung nasa loob ng Pilipinas ang pin, at kung may bukas na ulat sa parehong kategorya sa loob ng 50 metro.
+**Location (step 3).** Required ang **Use current location** (`AN.geo.locate()` sa `js/ui.js`): naka-`enableHighAccuracy`, nakikinig nang hanggang 10 segundo, at kinukuha ang pinakatumpak na basa (humihinto agad kapag ±15 m o mas maliit). Walang manual na pagpili ng lugar: hindi na-tap o na-drag ang pin, at walang province/city dropdown. Tinatantya ang province at city mula sa pinakamalapit na city sa demo list (`AN.geo.nearestPlace`, hanggang 25 km); barangay at landmark ay optional na text. Hindi pwedeng i-submit kapag walang GPS fix o nasa labas ng Pilipinas. Sinusuri rin kung may bukas na ulat sa parehong kategorya sa loob ng 50 metro.
 
-Naka-save sa bawat ulat: `lat`, `lng`, `accuracy` (metro, kung GPS), `locationSource` (`gps` | `pin`).
+Naka-save sa bawat ulat: `lat`, `lng`, `accuracy` (metro), `locationSource` (`gps`).
+
+## Map
+
+- **Clusters at thumbnails.** Naka-cluster ang mga report (native na clustering ng MapLibre). Mula zoom 13 pataas, awtomatikong lumalabas ang thumbnail ng photo ng bawat report sa ibabaw ng pin nang hindi na kailangang i-click (`AN.mapkit.reports` sa `js/ui.js`); lumalaki ito habang lumalapit (48 → 66 → 92 px). I-tap ang thumbnail para sa popup.
+- **Map / Satellite.** May maliit na animated na arrow na nakaturo sa option na hindi pa napipili.
 
 ## Saan ikakabit ang backend
 
@@ -81,7 +85,7 @@ Nasa `AN.auth.passwordChecks()` ang patakaran sa password (10+ character, malaki
 
 - Database, totoong login, email.
 - Awtomatikong pag-blur ng mukha at plaka. Paalala lang ang nasa form.
-- Buong listahan ng lugar (PSGC). 41 lungsod lang ang nasa demo, at tantya lang ang lalawigan at lungsod mula sa pin.
+- Buong listahan ng lugar (PSGC). 41 lungsod lang ang nasa demo, at tantya lang ang province at city mula sa GPS (pinakamalapit na city sa loob ng 25 km).
 - Pagtatago ng bagong ulat hangga't hindi naaaprubahan. Sa demo, lumalabas agad ito at napupunta sa review queue.
 - Server-side na validation at role check. Sa browser lang ang lahat ng check ngayon, kaya huwag itong ituring na seguridad.
 

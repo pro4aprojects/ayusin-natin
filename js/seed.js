@@ -6,16 +6,16 @@
   var AN = (window.AN = window.AN || {});
 
   AN.CATEGORIES = [
-    { id: 'kalsada', label: 'Kalsada at lubak', short: 'Kalsada', tint: '#E9DFCF' },
+    { id: 'kalsada', label: 'Kalsada at pothole', short: 'Kalsada', tint: '#E9DFCF' },
     { id: 'baha', label: 'Baha at drainage', short: 'Baha', tint: '#CFE0EE' },
     { id: 'ilaw', label: 'Street light', short: 'Ilaw', tint: '#E6E0C4' },
     { id: 'basura', label: 'Basura', short: 'Basura', tint: '#D8E2CF' },
     { id: 'tulay', label: 'Tulay at sidewalk', short: 'Tulay', tint: '#DDD8D0' },
-    { id: 'tubig', label: 'Tubig', short: 'Tubig', tint: '#CDE4E6' },
-    { id: 'kable', label: 'Kable at poste', short: 'Kable', tint: '#E0D6DF' },
+    { id: 'tubig', label: 'Tubig at pipeline', short: 'Tubig', tint: '#CDE4E6' },
+    { id: 'kable', label: 'Wires at poste', short: 'Wires', tint: '#E0D6DF' },
     { id: 'trapiko', label: 'Traffic at signage', short: 'Traffic', tint: '#EBD9CC' },
     { id: 'pasilidad', label: 'Public facility', short: 'Facility', tint: '#D6DCEB' },
-    { id: 'kalikasan', label: 'Landslide at natumbang puno', short: 'Landslide', tint: '#D3E0D0' },
+    { id: 'kalikasan', label: 'Landslide at fallen tree', short: 'Landslide', tint: '#D3E0D0' },
     { id: 'proyekto', label: 'Unfinished project', short: 'Project', tint: '#E4DCCB' },
     { id: 'iba', label: 'Iba pa', short: 'Iba pa', tint: '#DCE1E6' }
   ];
@@ -36,8 +36,8 @@
   ];
 
   AN.SEVERITIES = [
-    { id: 'abala', label: 'Abala lang' },
-    { id: 'delikado', label: 'Delikado' },
+    { id: 'abala', label: 'Minor lang' },
+    { id: 'delikado', label: 'Dangerous' },
     { id: 'agaran', label: 'Urgent' }
   ];
 

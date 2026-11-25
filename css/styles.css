@@ -50,6 +50,7 @@ main:focus { outline: none; }
 /* ---------- Header ---------- */
 .topbar { position: sticky; top: 0; z-index: 1100; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: var(--top); padding: 10px 24px; background: var(--ink); }
 .brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-family: var(--display); font-weight: 700; font-size: 26px; letter-spacing: .02em; text-transform: uppercase; }
+.brand__logo { width: 44px; height: 46px; padding: 2px; border-radius: 8px; background: #fff; object-fit: contain; }
 .demotag { padding: 1px 7px; border-radius: 4px; background: var(--accent); color: var(--ink); font-family: var(--body); font-size: 12px; letter-spacing: .04em; }
 .topnav { display: flex; flex-wrap: wrap; gap: 4px 22px; flex: 1 1 auto; }
 .topnav a { padding: 10px 0; color: #DCE6F0; text-decoration: none; font-weight: 500; }
@@ -178,6 +179,27 @@ main:focus { outline: none; }
 .minimap .maplibregl-ctrl.an-layers button { min-height: 26px; padding: 0 10px; font-size: 12px; }
 .photos figcaption .credit { flex-basis: 100%; font-size: 12px; color: var(--muted); }
 
+/* Arrow na nakaturo sa Map/Satellite na button na hindi pa napipili (maliit na bounce) */
+.maplibregl-ctrl.an-layers { overflow: visible; }
+.maplibregl-ctrl.an-layers button { position: relative; }
+.an-layers__arrow { position: absolute; left: 50%; top: -27px; width: 16px; height: 20px; margin-left: -8px; display: none; pointer-events: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35)); }
+.an-layers__arrow svg { display: block; width: 16px; height: 20px; }
+.maplibregl-ctrl.an-layers button:not(.is-on) .an-layers__arrow { display: block; animation: an-point 1s ease-in-out infinite; }
+@keyframes an-point { 0%, 100% { transform: translateY(-4px); } 50% { transform: translateY(2px); } }
+
+/* Thumbnail ng report na lumalabas sa map kapag malapit na ang zoom (hindi na kailangang i-click) */
+.mapthumb-wrap { --sz: 48px; }
+.mapthumb-wrap[data-size="md"] { --sz: 66px; }
+.mapthumb-wrap[data-size="lg"] { --sz: 92px; }
+.mapthumb { position: relative; display: block; width: var(--sz); height: var(--sz); padding: 0; border: 3px solid var(--bukas); border-radius: 10px; background: #C9D4DE; box-shadow: 0 0 0 2px #fff, 0 4px 12px rgba(14, 34, 56, .35); transition: width .18s, height .18s, transform .15s; }
+.mapthumb--aksyon { border-color: var(--aksyon); } .mapthumb--ayos { border-color: var(--ayos); }
+.mapthumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+.mapthumb::after { content: ''; position: absolute; left: 50%; bottom: -11px; margin-left: -7px; border: 7px solid transparent; border-bottom: 0; border-top-color: inherit; }
+.mapthumb:hover, .mapthumb:focus-visible { transform: scale(1.06); }
+.maplibregl-marker:has(.mapthumb:hover) { z-index: 2; }
+.droppin-wrap.is-fixed .droppin { cursor: default; }
+.filebtn svg { flex: 0 0 auto; }
+
 /* ---------- Mga pahina ---------- */
 .page { width: 100%; max-width: 1180px; margin: 0 auto; padding: 32px 24px 56px; display: flex; flex-direction: column; gap: 24px; }
 .page--narrow { max-width: 640px; }
@@ -285,4 +307,4 @@ tr.is-hidden td { background: #FAFAFA; color: var(--muted); }
   .photos img, .photo-empty { height: 220px; }
   .bar span { flex-basis: 120px; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

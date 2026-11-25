@@ -49,6 +49,6 @@
   document.querySelector('.skip').addEventListener('click', function (e) { e.preventDefault(); document.getElementById('app').focus(); });
   window.addEventListener('hashchange', go);
   AN.store.on(function () { renderHeader(parse().route.nav); });
-  if (!AN.store.isPersisted()) AN.ui.toast('Hindi magamit ang browser storage. Mawawala ang mga changes pag-refresh.', 'error');
+  if (!AN.store.isPersisted()) AN.ui.toast('Hindi available ang browser storage. Mawawala ang changes pag-refresh.', 'error');
   go();
 })();
