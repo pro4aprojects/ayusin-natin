@@ -18,12 +18,29 @@
   /** Ang UI ay tumatawag na sa totoong auth function; hindi pa lang ito naka-connect. */
   function attempt(promise, okMsg) {
     promise.then(function () { ui.toast(okMsg, 'ok'); }, function (err) {
-      ui.toast(err && err.code === 'NOT_CONNECTED' ? err.message : 'May error. I-try ulit.', 'error');
+      ui.toast(err && (err.code === 'NOT_CONNECTED' || err.code === 'DEMO') ? err.message : 'May error. I-try ulit.', 'error');
     });
   }
 
   /* ================= ACCOUNT ================= */
+  var GENDERS = [['babae', 'Babae'], ['lalaki', 'Lalaki'], ['iba', 'Iba pa'], ['hindi-sabihin', 'Prefer not to say']];
+  function genderLabel(id) { var g = GENDERS.filter(function (x) { return x[0] === id; })[0]; return g ? g[1] : ''; }
+  function todayISO() { return new Date().toISOString().slice(0, 10); }
+  function selectOpts(list, placeholder, val) {
+    return '<option value="">' + esc(placeholder) + '</option>' + list.map(function (x) {
+      var v = typeof x === 'string' ? x : x[0], l = typeof x === 'string' ? x : x[1];
+      return '<option value="' + esc(v) + '"' + (v === val ? ' selected' : '') + '>' + esc(l) + '</option>';
+    }).join('');
+  }
+  function addressLine(a) {
+    if (!a) return '';
+    return [a.street, a.barangay ? 'Brgy. ' + a.barangay : '', a.city, a.province, a.regionName || a.region].filter(Boolean).join(', ');
+  }
+
   AN.views.account = function (root) {
+    // View state na dapat manatili kahit mag-re-render ang page (hal. pagkatapos mag-sign in).
+    var v = { verifiedEmail: '', resetOpen: false, resetLogin: '', resetSent: false };
+
     function render() {
       var s = AN.auth.current();
       var u = s && AN.store.user(s.username);
@@ -43,11 +60,19 @@
             (u && u.photo ? '<button type="button" class="btn btn--ghost" id="rmpphoto">Remove photo</button>' : '') +
             '</div>' +
             '<p class="muted small">Pwede mula sa camera o gallery. Nire-resize sa 320 px at nako-compress sa max 30 KB. Kung walang photo, default user icon ang lalabas sa reports at profile mo.</p>' +
+            (u && u.registered
+              ? '<dl class="details"><div><dt>Full name</dt><dd>' + esc(u.fullName) + '</dd></div>' +
+                '<div><dt>Email</dt><dd>' + esc(u.email) + (u.emailVerified ? ' <span class="pill pill--ayos">Verified</span>' : '') + '</dd></div>' +
+                '<div><dt>Birthday · Age</dt><dd>' + esc(ui.fmtDate(u.birthday + 'T00:00:00')) + ' · ' + AN.auth.ageFrom(u.birthday) + '</dd></div>' +
+                '<div><dt>Gender</dt><dd>' + esc(genderLabel(u.gender)) + '</dd></div>' +
+                '<div><dt>Address</dt><dd>' + esc(addressLine(u.address)) + '</dd></div></dl>' +
+                '<p class="muted small">Private ang mga detalyeng ito; username at profile photo lang ang nakikita ng iba. Demo: sa browser mo lang ito naka-save.</p>'
+              : '<p class="note">Demo account ito, walang profile details. Para ma-try ang Full name, email verification, birthday at complete address, gumawa ng sariling account sa <b>Step 2</b> sa baba.</p>') +
             '</div></section>'
           : '') +
 
         '<section class="card card--warn stack-s"><h2>Demo mode</h2>' +
-        '<p class="muted">Wala pang totoong login. Nandiyan na ang mga button at form sa baba, pero dito ka muna pumili ng demo account para ma-try ang bawat role. ' +
+        '<p class="muted">Wala pang database at third-party login. Gumagana ang sign in, pag-create ng account, email code at forgot password sa baba, pero <b>sa browser mo lang</b> naka-save at <b>ipinapakita na lang sa screen ang code</b> imbes na i-email. Pwede ring pumili ng demo account para ma-try ang bawat role. ' +
         (s ? 'Naka-sign in ka bilang <b>@' + esc(s.username) + '</b> (' + esc(AN.ROLES[s.role]) + ').' : 'Hindi ka naka-sign in.') + '</p>' +
         '<div class="btnrow">' +
         '<button type="button" class="btn btn--dark" data-demo="user">Demo user</button>' +
@@ -58,21 +83,64 @@
         '</div></section>' +
 
         '<div class="acct">' +
+        '<div class="stack-m">' +
         '<form class="card stack-s" id="f-signin" novalidate><p class="eyebrow">Step 1</p><h2>Sign in</h2>' +
         '<button type="button" class="btn btn--outline btn--block" id="google"><span class="gmark" aria-hidden="true">G</span>Continue with Google</button>' +
         '<p class="or"><span>o gamit ang username</span></p>' +
-        '<div class="field"><label for="si-user">Username o email</label><input id="si-user" type="text" autocomplete="username"></div>' +
+        '<div class="field"><label for="si-user">Username o email</label><input id="si-user" type="text" autocomplete="username" value="' + esc(v.resetLogin) + '"></div>' +
         '<div class="field"><label for="si-pw">Password</label><input id="si-pw" type="password" autocomplete="current-password"></div>' +
+        '<p class="formerr" id="si-err" role="alert" hidden></p>' +
         '<button type="submit" class="btn btn--dark btn--block">Sign in</button>' +
-        '<button type="button" class="linkbtn" id="forgot">Forgot password?</button></form>' +
+        '<button type="button" class="linkbtn" id="forgot" aria-expanded="' + v.resetOpen + '">Forgot password?</button></form>' +
 
-        '<form class="card card--strong stack-s" id="f-setup" novalidate><p class="eyebrow">Step 2 · first time lang</p><h2>I-set up ang account</h2>' +
+        '<form class="card card--strong stack-s" id="f-reset" novalidate' + (v.resetOpen ? '' : ' hidden') + '><p class="eyebrow">Forgot password</p><h2>Reset gamit ang email</h2>' +
+        '<p class="muted small">Ilagay ang email (o username) ng account mo. Padadalhan ka ng 6-digit na reset code sa verified email mo. <b>Demo:</b> ipapakita na lang dito ang code.</p>' +
+        '<div class="field"><label for="rp-login">Email o username</label><div class="inlinerow"><input id="rp-login" type="text" autocomplete="username" value="' + esc(v.resetLogin) + '"><button type="button" class="btn btn--ghost btn--sm" id="rp-send">Send reset code</button></div><span class="small" id="rp-msg"></span></div>' +
+        '<div class="stack-s" id="rp-step2"' + (v.resetSent ? '' : ' hidden') + '>' +
+        '<div class="field"><label for="rp-code">Reset code</label><input id="rp-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits"></div>' +
+        '<div class="field"><label for="rp-new">New password</label><input id="rp-new" type="password" autocomplete="new-password"></div>' +
+        '<ul class="rules" id="rp-rules">' + rulesHTML('') + '</ul>' +
+        '<div class="field"><label for="rp-again">Confirm new password</label><input id="rp-again" type="password" autocomplete="new-password"></div>' +
+        '<p class="formerr" id="rp-err" role="alert" hidden></p>' +
+        '<button type="submit" class="btn btn--dark btn--block">Save new password</button></div>' +
+        '<button type="button" class="linkbtn" id="rp-back">Balik sa sign in</button></form>' +
+        '</div>' +
+
+        '<form class="card card--strong stack-s acct__wide" id="f-setup" novalidate><p class="eyebrow">Step 2 · first time lang</p><h2>I-set up ang account</h2>' +
+        '<div class="grid2">' +
+        '<div class="field"><label for="su-name">Full name</label><input id="su-name" type="text" maxlength="80" autocomplete="name" placeholder="Hal. Juan dela Cruz"></div>' +
         '<div class="field"><label for="su-user">Username (visible sa public)</label><input id="su-user" type="text" autocomplete="username" placeholder="hal. juan_dc"><span class="muted small" id="su-user-msg"></span></div>' +
+        '</div>' +
+        '<div class="field"><label for="su-email">Email <span class="muted">(ive-verify)</span></label>' +
+        '<div class="inlinerow"><input id="su-email" type="email" maxlength="120" autocomplete="email" placeholder="ikaw@email.com"><button type="button" class="btn btn--ghost btn--sm" id="su-send">Send code</button></div>' +
+        '<span class="small" id="su-email-msg">Padadalhan ng 6-digit code ang email mo para ma-verify. <b>Demo:</b> ipapakita na lang dito ang code; walang totoong email na pinapadala.</span></div>' +
+        '<div class="field" id="su-codewrap" hidden><label for="su-code">Verification code</label>' +
+        '<div class="inlinerow"><input id="su-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits"><button type="button" class="btn btn--dark btn--sm" id="su-verify">Verify</button></div><span class="small" id="su-code-msg"></span></div>' +
+        '<div class="grid3">' +
+        '<div class="field"><label for="su-bday">Birthday</label><input id="su-bday" type="date" max="' + todayISO() + '" autocomplete="bday"></div>' +
+        '<div class="field"><label for="su-age">Age</label><input id="su-age" type="text" readonly tabindex="-1" placeholder="auto mula sa birthday"></div>' +
+        '<div class="field"><label for="su-gender">Gender</label><select id="su-gender">' + selectOpts(GENDERS, 'Pumili') + '</select></div>' +
+        '</div>' +
+        '<fieldset class="addr"><legend>Complete address</legend>' +
+        '<div class="grid2">' +
+        '<div class="field"><label for="su-region">Region</label><select id="su-region">' + selectOpts(AN.ph.regions().map(function (r) { return [r.id, r.name]; }), 'Pumili ng region') + '</select></div>' +
+        '<div class="field"><label for="su-prov">Province</label><select id="su-prov" disabled><option value="">Pumili muna ng region</option></select></div>' +
+        '<div class="field"><label for="su-city">City / Municipality</label><select id="su-city" disabled><option value="">Pumili muna ng province</option></select></div>' +
+        '<div class="field" id="su-brgywrap"><label for="su-brgy">Barangay</label><select id="su-brgy" disabled><option value="">Pumili muna ng city</option></select></div>' +
+        '<div class="field" id="su-brgytxtwrap" hidden><label for="su-brgytxt">Barangay (i-type)</label><input id="su-brgytxt" type="text" maxlength="60" placeholder="Hal. San Roque"></div>' +
+        '</div>' +
+        '<div class="field"><label for="su-street">Street, Blk/Lot, House no. <span class="muted">(i-type)</span></label><input id="su-street" type="text" maxlength="120" autocomplete="street-address" placeholder="Hal. Blk 5 Lot 12, Mabini St."></div>' +
+        '<p class="muted small">Demo list ang dropdown: lahat ng region at province, pangunahing cities, at barangay ng mga demo city. Buong PSGC kapag may database na.</p>' +
+        '</fieldset>' +
+        '<div class="grid2">' +
         '<div class="field"><div class="labelrow"><label for="su-pw">Create password</label><button type="button" class="linkbtn" id="su-show" aria-pressed="false">Show</button></div><input id="su-pw" type="password" autocomplete="new-password"></div>' +
+        '<div class="field"><label for="su-pw2">Confirm password</label><input id="su-pw2" type="password" autocomplete="new-password"><span class="muted small" id="su-match"></span></div>' +
+        '</div>' +
         '<div class="meter"><div class="meter__bar"><span id="su-bar"></span></div><b id="su-label">Weak</b></div>' +
         '<ul class="rules" id="su-rules">' + rulesHTML('') + '</ul>' +
-        '<div class="field"><label for="su-pw2">Confirm password</label><input id="su-pw2" type="password" autocomplete="new-password"><span class="muted small" id="su-match"></span></div>' +
-        '<button type="submit" class="btn btn--accent btn--block">Finish setup</button></form>' +
+        '<p class="formerr" id="su-err" role="alert" hidden></p>' +
+        '<button type="submit" class="btn btn--accent btn--block">Finish setup</button>' +
+        '<p class="muted small">Sa pag-click, gagawin at isa-sign in ang account mo sa browser na ito. Username at profile photo lang ang public; private ang iba.</p></form>' +
 
         '<form class="card stack-s" id="f-change" novalidate><p class="eyebrow">Sa settings · anytime</p><h2>Change password</h2>' +
         '<div class="field"><label for="cp-old">Current password</label><input id="cp-old" type="password" autocomplete="current-password"></div>' +
@@ -81,13 +149,17 @@
         '<div class="field"><label for="cp-again">Confirm new password</label><input id="cp-again" type="password" autocomplete="new-password"></div>' +
         '<p class="formerr" id="cp-err" role="alert" hidden></p>' +
         '<button type="submit" class="btn btn--dark btn--block">Save new password</button>' +
-        '<p class="muted small">Kapag naka-connect na: masa-sign out ang ibang device at may email notification pagkatapos mag-change.</p></form>' +
+        '<p class="muted small">Gumagana para sa account na ginawa sa Step 2. Kapag naka-connect na ang backend: masa-sign out ang ibang device at may email notification pagkatapos mag-change.</p></form>' +
         '</div></div>';
       wire();
     }
 
     function wire() {
       var $ = function (sel) { return root.querySelector(sel); };
+      function showErr(sel, msg) { var el = $(sel); if (!el) return; el.hidden = !msg; el.textContent = msg || ''; }
+      function setMsg(sel, msg, cls) { var el = $(sel); if (!el) return; el.textContent = msg; el.className = 'small' + (cls ? ' t-' + cls : ' muted'); }
+      function errText(err) { return err && (err.code === 'DEMO' || err.code === 'NOT_CONNECTED') ? err.message : 'May error. I-try ulit.'; }
+
       root.querySelectorAll('[data-demo]').forEach(function (b) {
         b.addEventListener('click', function () {
           AN.auth.demoSignIn(b.getAttribute('data-demo'));
@@ -111,14 +183,52 @@
         ui.toast('Na-remove ang profile photo. Default icon na ulit ang gamit.');
       });
 
+      /* ---------- Sign in ---------- */
       $('#google').addEventListener('click', function () { attempt(AN.auth.signInWithGoogle(), 'Naka-sign in gamit ang Google.'); });
-      $('#forgot').addEventListener('click', function () { attempt(AN.auth.requestPasswordReset($('#si-user').value), 'Sent na ang reset link sa email mo.'); });
       $('#f-signin').addEventListener('submit', function (e) {
         e.preventDefault();
-        if (!$('#si-user').value.trim() || !$('#si-pw').value) { ui.toast('I-type ang username at password.', 'error'); return; }
-        attempt(AN.auth.signInWithPassword($('#si-user').value.trim(), $('#si-pw').value), 'Naka-sign in ka na.');
+        var login = $('#si-user').value.trim(), pw = $('#si-pw').value;
+        if (!login || !pw) { showErr('#si-err', 'I-type ang username (o email) at password.'); return; }
+        showErr('#si-err', '');
+        AN.auth.signInWithPassword(login, pw).then(function (u) { ui.toast('Naka-sign in ka na bilang @' + u.username + '.', 'ok'); }, function (err) { showErr('#si-err', errText(err)); });
       });
 
+      /* ---------- Forgot / reset password (via email code) ---------- */
+      $('#forgot').addEventListener('click', function () {
+        v.resetOpen = !v.resetOpen; v.resetLogin = $('#si-user').value.trim();
+        $('#f-reset').hidden = !v.resetOpen; this.setAttribute('aria-expanded', String(v.resetOpen));
+        if (v.resetOpen) { $('#rp-login').value = v.resetLogin; $('#rp-login').focus(); }
+      });
+      $('#rp-back').addEventListener('click', function () { v.resetOpen = false; $('#f-reset').hidden = true; $('#forgot').setAttribute('aria-expanded', 'false'); $('#si-user').focus(); });
+      $('#rp-send').addEventListener('click', function () {
+        var login = $('#rp-login').value.trim();
+        if (!login) { setMsg('#rp-msg', 'I-type ang email o username ng account mo.', 'urgent'); return; }
+        AN.auth.requestPasswordReset(login).then(function (r) {
+          v.resetSent = true; v.resetLogin = login;
+          $('#rp-step2').hidden = false;
+          setMsg('#rp-msg', 'Sent ang reset code sa ' + r.email + '. Demo: ang code ay ' + r.demoCode + ' (valid ng 10 min; sa production, nasa email ito).', 'ayos');
+          ui.toast('Demo reset code: ' + r.demoCode, 'ok');
+          $('#rp-code').focus();
+        }, function (err) { setMsg('#rp-msg', errText(err), 'urgent'); });
+      });
+      $('#rp-new').addEventListener('input', function (e) { $('#rp-rules').innerHTML = rulesHTML(e.target.value); });
+      $('#f-reset').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var login = $('#rp-login').value.trim(), code = $('#rp-code').value.trim(), pw = $('#rp-new').value;
+        var err = '';
+        if (!/^\d{6}$/.test(code)) err = 'I-type ang 6-digit na reset code.';
+        else if (strength(pw).n < 4) err = 'Hindi pa pasado ang bagong password sa lahat ng rules.';
+        else if (pw !== $('#rp-again').value) err = 'Hindi match ang bagong password at ang ulit nito.';
+        showErr('#rp-err', err);
+        if (err) return;
+        AN.auth.resetPassword(login, code, pw).then(function (u) {
+          v.resetOpen = false; v.resetSent = false; v.resetLogin = u.username;
+          ui.toast('Changed na ang password mo. Mag-sign in gamit ang bagong password.', 'ok');
+          render(); $('#si-pw').focus();
+        }, function (err2) { showErr('#rp-err', errText(err2)); });
+      });
+
+      /* ---------- Step 2: I-set up ang account ---------- */
       function refreshSetup() {
         var pw = $('#su-pw').value, st = strength(pw);
         $('#su-rules').innerHTML = rulesHTML(pw);
@@ -131,23 +241,110 @@
       }
       $('#su-pw').addEventListener('input', refreshSetup);
       $('#su-pw2').addEventListener('input', refreshSetup);
-      $('#su-user').addEventListener('input', function (e) { $('#su-user-msg').textContent = e.target.value ? AN.auth.usernameError(e.target.value) : ''; });
+      $('#su-user').addEventListener('input', function (e) {
+        var name = e.target.value.trim().toLowerCase();
+        $('#su-user-msg').textContent = !name ? '' : AN.auth.usernameError(name) || (AN.store.user(name) ? 'Taken na ang username na ito.' : 'Available ang @' + name + '.');
+      });
       $('#su-show').addEventListener('click', function () {
         var show = $('#su-pw').type === 'password';
         $('#su-pw').type = show ? 'text' : 'password';
         this.textContent = show ? 'Hide' : 'Show';
         this.setAttribute('aria-pressed', String(show));
       });
-      $('#f-setup').addEventListener('submit', function (e) {
-        e.preventDefault();
-        var name = $('#su-user').value.trim(), pw = $('#su-pw').value;
-        var bad = AN.auth.usernameError(name);
-        if (bad) { ui.toast(bad, 'error'); $('#su-user').focus(); return; }
-        if (strength(pw).n < 4) { ui.toast('Hindi pa pasado ang password sa lahat ng rules.', 'error'); $('#su-pw').focus(); return; }
-        if (pw !== $('#su-pw2').value) { ui.toast('Hindi match ang dalawang password.', 'error'); $('#su-pw2').focus(); return; }
-        attempt(AN.auth.register(name, pw), 'Created na ang account mo.');
+
+      // Email verification (demo code)
+      function emailVerified() { return v.verifiedEmail && v.verifiedEmail === $('#su-email').value.trim().toLowerCase(); }
+      $('#su-email').addEventListener('input', function () {
+        if (!emailVerified()) { $('#su-email').classList.remove('is-verified'); $('#su-send').textContent = 'Send code'; }
+      });
+      $('#su-send').addEventListener('click', function () {
+        var email = $('#su-email').value.trim();
+        AN.auth.sendEmailCode(email).then(function (r) {
+          $('#su-codewrap').hidden = false; $('#su-code').value = ''; $('#su-code').focus();
+          setMsg('#su-email-msg', 'Sent ang code sa ' + r.email + '. Demo: ang verification code mo ay ' + r.demoCode + ' (valid ng 10 min; sa production, sa email ito darating).', 'aksyon');
+          setMsg('#su-code-msg', '', '');
+          $('#su-send').textContent = 'Resend code';
+          ui.toast('Demo verification code: ' + r.demoCode, 'ok');
+        }, function (err) { setMsg('#su-email-msg', errText(err), 'urgent'); });
+      });
+      $('#su-verify').addEventListener('click', function () {
+        var email = $('#su-email').value.trim();
+        AN.auth.verifyEmailCode(email, $('#su-code').value).then(function () {
+          v.verifiedEmail = email.toLowerCase();
+          $('#su-codewrap').hidden = true; $('#su-email').classList.add('is-verified');
+          setMsg('#su-email-msg', 'Verified ang ' + email + ' ✓', 'ayos');
+          $('#su-send').textContent = 'Verified';
+          ui.toast('Verified na ang email mo.', 'ok');
+        }, function (err) { setMsg('#su-code-msg', errText(err), 'urgent'); });
+      });
+      $('#su-code').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('#su-verify').click(); } });
+
+      // Birthday -> age
+      $('#su-bday').addEventListener('change', function (e) {
+        var age = AN.auth.ageFrom(e.target.value);
+        $('#su-age').value = age == null ? '' : age + (age < 13 ? ' (dapat 13 pataas)' : '');
       });
 
+      // Address dropdowns: Region > Province > City/Municipality > Barangay (o i-type kung wala sa list)
+      function fill(sel, list, placeholder) { var el = $(sel); el.innerHTML = selectOpts(list, placeholder); el.disabled = !list.length; }
+      $('#su-region').addEventListener('change', function (e) {
+        fill('#su-prov', AN.ph.provinces(e.target.value).map(function (p) { return p.name; }), e.target.value ? 'Pumili ng province' : 'Pumili muna ng region');
+        fill('#su-city', [], 'Pumili muna ng province'); fill('#su-brgy', [], 'Pumili muna ng city');
+        $('#su-brgytxtwrap').hidden = true; $('#su-brgywrap').hidden = false;
+      });
+      $('#su-prov').addEventListener('change', function (e) {
+        fill('#su-city', AN.ph.cities($('#su-region').value, e.target.value), e.target.value ? 'Pumili ng city/municipality' : 'Pumili muna ng province');
+        fill('#su-brgy', [], 'Pumili muna ng city');
+        $('#su-brgytxtwrap').hidden = true; $('#su-brgywrap').hidden = false;
+      });
+      $('#su-city').addEventListener('change', function (e) {
+        var list = AN.ph.barangays($('#su-prov').value, e.target.value);
+        var hasList = list.length > 0 && !!e.target.value;
+        $('#su-brgywrap').hidden = !hasList;
+        $('#su-brgytxtwrap').hidden = hasList || !e.target.value;
+        fill('#su-brgy', hasList ? list.concat([['__iba', 'Iba pa / hindi nakalista (i-type)']]) : [], 'Pumili ng barangay');
+      });
+      $('#su-brgy').addEventListener('change', function (e) {
+        var other = e.target.value === '__iba';
+        $('#su-brgytxtwrap').hidden = !other;
+        if (other) $('#su-brgytxt').focus();
+      });
+
+      $('#f-setup').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var name = $('#su-user').value.trim().toLowerCase(), pw = $('#su-pw').value, email = $('#su-email').value.trim();
+        var region = AN.ph.region($('#su-region').value);
+        var brgySel = $('#su-brgy').value;
+        var brgy = ($('#su-brgywrap').hidden || brgySel === '__iba') ? $('#su-brgytxt').value.trim() : brgySel;
+        var age = AN.auth.ageFrom($('#su-bday').value);
+        var err = '', focus = '';
+        if ($('#su-name').value.trim().length < 3) { err = 'Ilagay ang full name mo.'; focus = '#su-name'; }
+        else if (AN.auth.usernameError(name)) { err = AN.auth.usernameError(name); focus = '#su-user'; }
+        else if (AN.store.user(name)) { err = 'Taken na ang username na ito. Pumili ng iba.'; focus = '#su-user'; }
+        else if (AN.auth.emailError(email)) { err = 'Mukhang mali ang email.'; focus = '#su-email'; }
+        else if (!emailVerified()) { err = 'I-verify muna ang email: i-click ang "Send code", tapos i-type ang code.'; focus = '#su-email'; }
+        else if (age == null) { err = 'Ilagay ang birthday mo.'; focus = '#su-bday'; }
+        else if (age < 13 || age > 120) { err = 'Dapat 13 taong gulang pataas para makagawa ng account.'; focus = '#su-bday'; }
+        else if (!$('#su-gender').value) { err = 'Pumili ng gender.'; focus = '#su-gender'; }
+        else if (!region) { err = 'Pumili ng region.'; focus = '#su-region'; }
+        else if (!$('#su-prov').value) { err = 'Pumili ng province.'; focus = '#su-prov'; }
+        else if (!$('#su-city').value) { err = 'Pumili ng city o municipality.'; focus = '#su-city'; }
+        else if (!brgy) { err = 'Pumili o i-type ang barangay.'; focus = $('#su-brgywrap').hidden || brgySel === '__iba' ? '#su-brgytxt' : '#su-brgy'; }
+        else if (strength(pw).n < 4) { err = 'Hindi pa pasado ang password sa lahat ng rules.'; focus = '#su-pw'; }
+        else if (pw !== $('#su-pw2').value) { err = 'Hindi match ang dalawang password.'; focus = '#su-pw2'; }
+        showErr('#su-err', err);
+        if (err) { ui.toast(err, 'error'); if (focus) $(focus).focus(); return; }
+        AN.auth.register({
+          username: name, email: email, password: pw, fullName: $('#su-name').value, birthday: $('#su-bday').value, gender: $('#su-gender').value,
+          address: { region: region.id, regionName: region.name, province: $('#su-prov').value, city: $('#su-city').value, barangay: brgy, street: $('#su-street').value }
+        }).then(function (u) {
+          v.verifiedEmail = '';
+          ui.toast('Created na ang account mo. Naka-sign in ka na bilang @' + u.username + '.', 'ok');
+          window.scrollTo(0, 0);
+        }, function (err2) { showErr('#su-err', errText(err2)); ui.toast(errText(err2), 'error'); });
+      });
+
+      /* ---------- Change password ---------- */
       $('#cp-new').addEventListener('input', function (e) { $('#cp-rules').innerHTML = rulesHTML(e.target.value); });
       $('#f-change').addEventListener('submit', function (e) {
         e.preventDefault();
@@ -156,9 +353,12 @@
         else if (strength($('#cp-new').value).n < 4) err = 'Hindi pa pasado ang bagong password sa lahat ng rules.';
         else if ($('#cp-new').value === $('#cp-old').value) err = 'Dapat iba ang bagong password sa current.';
         else if ($('#cp-new').value !== $('#cp-again').value) err = 'Hindi match ang bagong password at ang ulit nito.';
-        $('#cp-err').hidden = !err; $('#cp-err').textContent = err;
+        showErr('#cp-err', err);
         if (err) return;
-        attempt(AN.auth.changePassword($('#cp-old').value, $('#cp-new').value), 'Changed na ang password mo.');
+        AN.auth.changePassword($('#cp-old').value, $('#cp-new').value).then(function () {
+          ui.toast('Changed na ang password mo.', 'ok');
+          $('#cp-old').value = ''; $('#cp-new').value = ''; $('#cp-again').value = ''; $('#cp-rules').innerHTML = rulesHTML('');
+        }, function (err2) { showErr('#cp-err', errText(err2)); });
       });
     }
 
@@ -254,7 +454,7 @@
         (isAdmin ? '' : '<p class="muted small">Super admin lang ang pwedeng mag-change ng role.</p>') +
         '<p class="muted small">' + ui.countLine(upg, 'users') + '</p>' +
         upg.items.map(function (u) {
-          return '<div class="userrow">' + ui.userLink(u.username, 's') + '<div><span class="muted small">' + esc(u.note) + (u.suspended ? ' · SUSPENDED' : '') + ' · ' + AN.store.stats(u.username).reports + ' reports</span></div>' +
+          return '<div class="userrow">' + ui.userLink(u.username, 's') + '<div>' + (u.registered ? '<span class="small">' + esc(u.fullName) + (u.emailVerified ? ' <span class="pill pill--ayos">Email verified</span>' : '') + '</span><br>' : '') + '<span class="muted small">' + esc(u.note) + (u.suspended ? ' · SUSPENDED' : '') + ' · ' + AN.store.stats(u.username).reports + ' reports</span></div>' +
             '<label class="sr" for="role-' + esc(u.username) + '">Role ni ' + esc(u.username) + '</label><select id="role-' + esc(u.username) + '" data-role="' + esc(u.username) + '"' + (isAdmin ? '' : ' disabled') + '>' + Object.keys(AN.ROLES).map(function (k) { return '<option value="' + k + '"' + (k === u.role ? ' selected' : '') + '>' + esc(AN.ROLES[k]) + '</option>'; }).join('') + '</select>' +
             '<button type="button" class="btn btn--ghost btn--sm" data-suspend="' + esc(u.username) + '"' + (isAdmin ? '' : ' disabled') + '>' + (u.suspended ? 'Restore' : 'Suspend') + '</button></div>';
         }).join('') + '<div id="aupager">' + ui.pagerHTML(upg) + '</div></section>' +

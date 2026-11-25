@@ -1,6 +1,6 @@
 # Ayusin Natin — demo prototype
 
-Gumaganang front-end prototype: mapa ng mga ulat, pag-uulat na may litrato at lokasyon, pagsubaybay ng status, profile at ranking ng mga user, Contact Us, account screens, at administrator. **Walang database at walang totoong login.** Seed demo data lang ang laman, at sa `localStorage` ng browser naka-save ang mga idinagdag mo.
+Gumaganang front-end prototype: mapa ng mga ulat, pag-uulat na may litrato at lokasyon, pagsubaybay ng status, profile at ranking ng mga user, Contact Us, account (sign up na may email code, sign in, forgot password), at administrator. **Walang database, walang email service at walang third-party login.** Seed demo data lang ang laman, at sa `localStorage` ng browser naka-save ang mga idinagdag mo (kasama ang mga account na ginawa sa demo).
 
 Plain HTML, CSS at JavaScript ito. Walang build step at walang `npm install`.
 
@@ -27,9 +27,16 @@ Buksan ang <http://localhost:8080>.
 - Gumagana lang ang **Use current location** sa `localhost` o `https`. Para masubukan sa phone, i-deploy sa kahit anong static host na may https (hal. GitHub Pages, Netlify, Cloudflare Pages).
 - Taglish ang UI text: casual na Tagalog, English para sa mga terminong mas madaling maintindihan (Report, Fixed, In progress, Location).
 
-## Mga demo account
+## Mga demo account at sign up
 
 Sa **Account** page, pumili ng role: Demo user, Demo moderator, Demo LGU, Demo admin. Lalabas ang **Admin** sa menu kapag moderator o admin.
+
+Pwede ring gumawa ng **sariling account** (Step 2: *I-set up ang account*): Full name, Username, Email (ive-verify), Birthday (auto ang Age; 13 pataas), Gender, Complete address (dropdown: Region > Province > City/Municipality > Barangay; i-type ang Street / Blk-Lot / House no.), at password. **Demo lang ang lahat ng ito, sa browser mo lang:**
+
+- **Email verification.** Walang email na pinapadala: ipinapakita na lang sa screen (at sa toast) ang 6-digit na code, valid ng 10 minuto. Sa production, dito papasok ang email service.
+- **Sign in** gamit ang username o email + password; **Change password**; **Forgot password** gamit ang email ng account (reset code, demo: nasa screen din). Ang mga demo account (juan_dc, atbp.) ay walang password at email, kaya Demo buttons lang ang gamit sa kanila.
+- **Password**: SHA-256 hash + salt lang ang naka-save sa `localStorage` (FNV fallback kung walang WebCrypto, hal. http sa LAN); hindi kasama sa Export data. Private ang full name, email, birthday, gender at address: username at profile photo lang ang public.
+- Nasa `js/places.js` ang address list: lahat ng region at province, mga pangunahing city/municipality, at barangay ng mga demo city; kapag wala sa list ang barangay, may text field. Papalitan ng buong PSGC kapag may database na.
 
 Sa Admin: **I-reset ang demo data** para bumalik sa orihinal, at **Export data (JSON)** para magamit sa pag-seed ng totoong database.
 
@@ -39,13 +46,14 @@ Sa Admin: **I-reset ang demo data** para bumalik sa orihinal, at **Export data (
 index.html
 css/styles.css
 js/seed.js                  kategorya, status, mga lungsod, Contact Us types, scoring, demo users at reports (48 hand-written + generated)
-js/store.js                 DATA LAYER + AUTH (dito ikakabit ang backend): reports, users, profile photo, ranking, Contact Us messages
+js/places.js                PH address list para sa dropdown (region > province > city > barangay); demo list, PSGC kapag may database
+js/store.js                 DATA LAYER + AUTH (dito ikakabit ang backend): reports, users, profile photo, ranking, Contact Us, demo auth
 js/ui.js                    helpers (avatar, pagination, urgent), pag-compress ng litrato (max 50 KB), lokasyon (AN.geo), MapLibre helpers (AN.mapkit)
 img/logo.jpg, logo-hq.png   logo (in-upload na design, Lanczos upscale 4x: 1024px para sa web, 1692px na master); favicon.png at apple-touch-icon.png = square crop ng emblem
 js/views-public.js          Mapa (home), Reports, Report details
 js/views-report.js          Mag-Report (Terms & Conditions + form)
 js/views-users.js           Users (ranking), public Profile, Contact Us
-js/views-account-admin.js   Account (profile photo) at Administrator
+js/views-account-admin.js   Account (sign in, set up account, forgot password, profile photo) at Administrator
 js/app.js                   hash router at header
 ```
 
@@ -70,7 +78,7 @@ Naka-save sa bawat ulat: `lat`, `lng`, `accuracy` (metro), `locationSource` (`gp
 ## Map
 
 - **Clusters at thumbnails.** Naka-cluster ang mga report (native na clustering ng MapLibre). Mula zoom 13 pataas, awtomatikong lumalabas ang thumbnail ng photo ng bawat report sa ibabaw ng pin nang hindi na kailangang i-click (`AN.mapkit.reports` sa `js/ui.js`); lumalaki ito habang lumalapit (48 → 66 → 92 px). I-tap ang thumbnail para sa popup.
-- **Urgent.** Ang mga report na *Urgent* ang severity at hindi pa fixed ay may pulang halo na kumikislap nang katamtaman (~1.6 s kada kislap; `an-urgent` layer, 20 fps na `setInterval`), pati ang cluster na may laman na urgent (pulang border + halo). May "!" badge at kumikislap na glow din ang thumbnail. Sa status bar ng mapa may filter na **Urgent, hindi pa fixed** para iyon lang ang ipakita. Naka-off ang animation kapag `prefers-reduced-motion`.
+- **Urgent.** Ang mga report na *Urgent* ang severity at hindi pa fixed ay may pulang halo na kumikislap nang katamtaman (~1.6 s kada kislap; `an-urgent` layer, 20 fps na `setInterval`), pati ang cluster na may laman na urgent (pulang border + halo). May "!" badge at kumikislap na glow din ang thumbnail. **Kapag na-fix na** (Fixed o Confirmed fixed), hindi na ito kumikislap at nagiging green ang point at thumbnail (nire-rebuild ang thumbnail kapag nagbago ang status). Sa status bar ng mapa may filter na **Urgent, hindi pa fixed** para iyon lang ang ipakita. Naka-off ang animation kapag `prefers-reduced-motion`.
 - **Map / Satellite.** May maliit na animated na arrow na nakaturo sa option na hindi pa napipili.
 
 ## Users, profile at profile photo
@@ -101,16 +109,17 @@ Lahat ng basa at sulat ay dumadaan sa `js/store.js`:
 | `AN.store.feedback()`, `addFeedback()`, `setFeedbackStatus()`, `removeFeedback()` | contact / feedback table (+ email notification sa team) |
 | `AN.store.moderate()`, `setStatus()`, `remove()`, `setUser()` | admin endpoints na may role check sa server |
 | `AN.auth.demoSignIn()` | tanggalin |
-| `AN.auth.signInWithGoogle()` | Google Sign-In |
-| `AN.auth.signInWithPassword()`, `register()`, `changePassword()`, `requestPasswordReset()` | totoong auth |
+| `AN.auth.signInWithGoogle()` | Google Sign-In (`NOT_CONNECTED` pa) |
+| `AN.auth.register()`, `signInWithPassword()`, `changePassword()` | totoong auth sa server (hash sa server, sessions/tokens) |
+| `AN.auth.sendEmailCode()`, `verifyEmailCode()`, `requestPasswordReset()`, `resetPassword()` | email service (OTP / reset link) + server-side na pag-check ng code |
 
-Ang mga auth function na hindi pa nakakabit ay nagbabalik ng rejected Promise na may `code: 'NOT_CONNECTED'`. Tinatawag na sila ng mga button at form, kaya kapag pinalitan ang laman nila, gagana na ang UI. Sync pa ang `AN.store` ngayon; magiging async ito kapag may API na, kaya kailangang i-`await` sa mga view.
+Lahat ng auth function ay Promise na: demo na implementation sa browser ang laman ngayon (nagre-reject na may `code: 'DEMO'` at Taglish na message kapag mali), kaya kapag pinalitan ang laman nila ng tawag sa API, gagana na ang UI. Sync pa ang `AN.store` ngayon; magiging async ito kapag may API na, kaya kailangang i-`await` sa mga view.
 
 Nasa `AN.auth.passwordChecks()` ang patakaran sa password (10+ character, malaki at maliit na titik, numero, simbolo). Ulitin ang parehong check sa server. **Walang password na sine-save kahit saan sa demo.**
 
 ## Hindi pa kasama (sadya)
 
-- Database, totoong login, email.
+- Database, totoong login (server-side), totoong email. Sa browser lang ang sign up, code at password hash ngayon.
 - Awtomatikong pag-blur ng mukha at plaka. Paalala lang ang nasa form.
 - Buong listahan ng lugar (PSGC). 41 lungsod lang ang nasa demo, at tantya lang ang province at city mula sa GPS (pinakamalapit na city sa loob ng 25 km).
 - Pagtatago ng bagong ulat hangga't hindi naaaprubahan. Sa demo, lumalabas agad ito at napupunta sa review queue.

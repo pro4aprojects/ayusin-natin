@@ -606,8 +606,13 @@
         btn.appendChild(img);
         btn.addEventListener('click', function (e) { e.stopPropagation(); if (onClick) onClick(r.id, lngLat.slice()); });
         wrap.appendChild(btn);
-        return new window.maplibregl.Marker({ element: wrap, anchor: 'bottom', offset: [0, -8] }).setLngLat(lngLat).addTo(map);
+        var m = new window.maplibregl.Marker({ element: wrap, anchor: 'bottom', offset: [0, -8] }).setLngLat(lngLat).addTo(map);
+        m.__sig = thumbSig(r);
+        return m;
       }
+      /** Kapag nagbago ang status, urgent o photo ng report (hal. na-fix na ang urgent), ibang signature → ire-rebuild ang thumbnail
+          para mawala ang pulang kislap at maging green ang border. */
+      function thumbSig(r) { return r.status + '|' + (isUrgent(r) ? 1 : 0) + '|' + photoSrc(firstPhoto(r)); }
 
       /** Ini-sync ang thumbnails sa mga report na kasalukuyang nakikita (hindi naka-cluster) sa viewport. */
       function syncThumbs() {
@@ -621,7 +626,9 @@
             if (!want[id] && byId[id]) want[id] = f.geometry.coordinates.slice();
           });
         }
-        Object.keys(thumbs).forEach(function (id) { if (!want[id]) { thumbs[id].remove(); delete thumbs[id]; } });
+        Object.keys(thumbs).forEach(function (id) {
+          if (!want[id] || thumbs[id].__sig !== thumbSig(byId[id])) { thumbs[id].remove(); delete thumbs[id]; }
+        });
         var size = thumbSize(z);
         Object.keys(want).forEach(function (id) {
           if (!thumbs[id]) thumbs[id] = thumbMarker(byId[id], want[id]);

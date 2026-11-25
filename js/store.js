@@ -257,31 +257,178 @@
       commit();
     },
     reset: function () { state = fresh(); reindex(); commit(); },
-    exportJSON: function () { return JSON.stringify({ exportedAt: nowISO(), reports: state.reports, users: state.users, feedback: state.feedback }, null, 2); }
+    exportJSON: function () {
+      var users = state.users.map(function (u) { var c = {}; Object.keys(u).forEach(function (k) { if (k !== 'passwordHash' && k !== 'passwordSalt') c[k] = u[k]; }); return c; });
+      return JSON.stringify({ exportedAt: nowISO(), reports: state.reports, users: users, feedback: state.feedback }, null, 2);
+    }
   };
 
-  /* ---------- AUTH (naka-abang) ----------
-     Gumagana lang ang demoSignIn/signOut. Ang iba ay sadyang hindi pa nakakabit:
-     nagbabalik sila ng rejected Promise na may code na 'NOT_CONNECTED' para handa na ang UI. */
+  /* ---------- AUTH (DEMO, sa browser lang) ----------
+     Gumagana na ang register, sign in (username o email + password), email verification code, forgot/reset password
+     at change password, pero LAHAT sa browser lang: walang database, walang email service, walang third party.
+     - Ang "email" ay hindi talaga pinapadalhan: ipinapakita na lang sa screen ang 6-digit na code (demo).
+     - Password: SHA-256 hash + salt lang ang naka-save sa localStorage, hindi ang mismong password.
+     Kapag may backend na, palitan ang laman ng bawat function dito ng tawag sa API. Google Sign-In: hindi pa naka-connect. */
   function notConnected(what) {
     var err = new Error(what + ' ay hindi pa naka-connect. Demo mode pa lang ito.');
     err.code = 'NOT_CONNECTED';
     return Promise.reject(err);
   }
+  function fail(msg) { var e = new Error(msg); e.code = 'DEMO'; return Promise.reject(e); }
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  var codes = {}; // 'verify:email' | 'reset:email' -> { code, exp } (sa memory lang; nawawala pag-refresh)
+  var CODE_TTL = 10 * 60 * 1000;
+
+  function randomHex(n) {
+    var a = new Uint8Array(n);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(a);
+    else for (var i = 0; i < n; i++) a[i] = Math.floor(Math.random() * 256);
+    return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+  function code6() { return String(100000 + (parseInt(randomHex(4), 16) % 900000)); }
+  function hashPassword(pw, salt) {
+    var text = salt + ':' + pw;
+    if (window.crypto && window.crypto.subtle && window.TextEncoder) {
+      return window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      });
+    }
+    // Fallback kapag walang WebCrypto (hal. http sa LAN): FNV-1a, demo lang.
+    var h = 0x811c9dc5;
+    for (var i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return Promise.resolve('fnv:' + h.toString(16));
+  }
+  function findByLogin(login) {
+    login = (login || '').trim().toLowerCase();
+    return state.users.filter(function (u) { return u.username === login || (u.email && u.email.toLowerCase() === login); })[0] || null;
+  }
+  function issueCode(kind, email) {
+    var c = code6();
+    codes[kind + ':' + email.toLowerCase()] = { code: c, exp: Date.now() + CODE_TTL };
+    return c;
+  }
+  function checkCode(kind, email, code) {
+    var k = kind + ':' + (email || '').toLowerCase(), e = codes[k];
+    if (!e || Date.now() > e.exp) return 'Expired na o wala pang code. Mag-send ulit.';
+    if (String(code || '').trim() !== e.code) return 'Mali ang code. I-check ulit.';
+    return '';
+  }
+  function ageFrom(birthday) {
+    var b = new Date(birthday + 'T00:00:00'); if (isNaN(b)) return null;
+    var n = new Date(), a = n.getFullYear() - b.getFullYear();
+    if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) a -= 1;
+    return a;
+  }
 
   var auth = {
     current: function () { return state.session; },
     demoSignIn: function (role) {
-      var u = state.users.filter(function (x) { return x.role === role; })[0];
+      var u = state.users.filter(function (x) { return x.role === role && !x.passwordHash; })[0] || state.users.filter(function (x) { return x.role === role; })[0];
       state.session = { username: u.username, role: u.role };
       commit();
     },
     signOut: function () { state.session = null; commit(); },
     signInWithGoogle: function () { return notConnected('Ang Google Sign-In'); },
-    signInWithPassword: function (/* username, password */) { return notConnected('Ang login gamit ang username at password'); },
-    register: function (/* username, password */) { return notConnected('Ang pag-create ng account'); },
-    changePassword: function (/* current, next */) { return notConnected('Ang pag-change ng password'); },
-    requestPasswordReset: function (/* email */) { return notConnected('Ang pag-reset ng password'); },
+    ageFrom: ageFrom,
+    emailError: function (email) { return EMAIL_RE.test((email || '').trim()) ? '' : 'Mukhang mali ang email.'; },
+
+    /** Step 1 ng email verification: "pinapadala" ang 6-digit code. Demo: ibinabalik ang code para ipakita sa screen. */
+    sendEmailCode: function (email) {
+      email = (email || '').trim();
+      if (!EMAIL_RE.test(email)) return fail('Mukhang mali ang email.');
+      var taken = findByLogin(email);
+      if (taken && (!state.session || taken.username !== state.session.username)) return fail('May account na gumagamit ng email na ito. Mag-sign in o gamitin ang Forgot password.');
+      return Promise.resolve({ demoCode: issueCode('verify', email), email: email });
+    },
+    verifyEmailCode: function (email, code) {
+      var err = checkCode('verify', email, code);
+      if (err) return fail(err);
+      codes['verified:' + email.trim().toLowerCase()] = { code: 'ok', exp: Date.now() + CODE_TTL };
+      return Promise.resolve(true);
+    },
+    isEmailVerified: function (email) { var e = codes['verified:' + (email || '').trim().toLowerCase()]; return !!e && Date.now() <= e.exp; },
+
+    /** Gumagawa ng account sa browser (demo). data: username, email, password, fullName, birthday, gender, address {region, province, city, barangay, street} */
+    register: function (data) {
+      data = data || {};
+      var name = (data.username || '').trim().toLowerCase(), email = (data.email || '').trim();
+      var bad = auth.usernameError(name);
+      if (bad) return fail(bad);
+      if (byName[name]) return fail('Taken na ang username na ito. Pumili ng iba.');
+      if (!EMAIL_RE.test(email)) return fail('Mukhang mali ang email.');
+      if (findByLogin(email)) return fail('May account na gumagamit ng email na ito.');
+      if (!auth.isEmailVerified(email)) return fail('I-verify muna ang email gamit ang code.');
+      if ((data.fullName || '').trim().length < 3) return fail('Ilagay ang full name mo.');
+      var age = ageFrom(data.birthday);
+      if (age == null) return fail('Ilagay ang birthday mo.');
+      if (age < 13 || age > 120) return fail('Dapat 13 taong gulang pataas para makagawa ng account.');
+      if (!data.gender) return fail('Pumili ng gender.');
+      var ad = data.address || {};
+      if (!ad.region || !ad.province || !ad.city || !ad.barangay) return fail('Kumpletuhin ang address: region, province, city/municipality at barangay.');
+      if (auth.passwordChecks(data.password).some(function (c) { return !c.ok; })) return fail('Hindi pa pasado ang password sa lahat ng rules.');
+      var salt = randomHex(8);
+      return hashPassword(data.password, salt).then(function (hash) {
+        var u = {
+          username: name, role: 'user', note: 'Resident · ' + ad.city, suspended: false, photo: null, joinedAt: nowISO(),
+          fullName: data.fullName.trim(), email: email, emailVerified: true, birthday: data.birthday, gender: data.gender,
+          address: { region: ad.region, regionName: ad.regionName || ad.region, province: ad.province, city: ad.city, barangay: ad.barangay, street: (ad.street || '').trim() },
+          passwordSalt: salt, passwordHash: hash, registered: true
+        };
+        state.users.push(u);
+        byName[name] = u;
+        state.session = { username: u.username, role: u.role };
+        commit();
+        return u;
+      });
+    },
+
+    signInWithPassword: function (login, password) {
+      var u = findByLogin(login);
+      if (!u) return fail('Walang account na ganyan ang username o email.');
+      if (u.suspended) return fail('Suspended ang account na ito.');
+      if (!u.passwordHash) return fail('Demo account ito (walang password). Gamitin ang Demo buttons sa itaas, o gumawa ng sariling account sa Step 2.');
+      return hashPassword(password || '', u.passwordSalt).then(function (hash) {
+        if (hash !== u.passwordHash) throw Object.assign(new Error('Mali ang password.'), { code: 'DEMO' });
+        state.session = { username: u.username, role: u.role };
+        commit();
+        return u;
+      });
+    },
+
+    changePassword: function (current, next) {
+      var s = state.session, u = s && byName[s.username];
+      if (!u) return fail('Mag-sign in muna.');
+      if (!u.passwordHash) return fail('Demo account ito (walang password na pwedeng palitan). Gumawa ng sariling account sa Step 2.');
+      if (auth.passwordChecks(next).some(function (c) { return !c.ok; })) return fail('Hindi pa pasado ang bagong password sa lahat ng rules.');
+      return hashPassword(current || '', u.passwordSalt).then(function (hash) {
+        if (hash !== u.passwordHash) throw Object.assign(new Error('Mali ang current password.'), { code: 'DEMO' });
+        var salt = randomHex(8);
+        return hashPassword(next, salt).then(function (h2) { u.passwordSalt = salt; u.passwordHash = h2; commit(); return true; });
+      });
+    },
+
+    /** Forgot password: email (o username) ng account na may verified email. Demo: ibinabalik ang reset code para ipakita sa screen. */
+    requestPasswordReset: function (login) {
+      var u = findByLogin(login);
+      if (!u) return fail('Walang account na ganyan ang email o username.');
+      if (!u.email || !u.emailVerified) return fail('Walang verified na email ang account na ito. (Demo accounts: gamitin ang Demo buttons.)');
+      return Promise.resolve({ demoCode: issueCode('reset', u.email), email: u.email, username: u.username });
+    },
+    resetPassword: function (login, code, newPassword) {
+      var u = findByLogin(login);
+      if (!u || !u.email) return fail('Walang account na ganyan ang email o username.');
+      var err = checkCode('reset', u.email, code);
+      if (err) return fail(err);
+      if (auth.passwordChecks(newPassword).some(function (c) { return !c.ok; })) return fail('Hindi pa pasado ang bagong password sa lahat ng rules.');
+      var salt = randomHex(8);
+      return hashPassword(newPassword, salt).then(function (hash) {
+        u.passwordSalt = salt; u.passwordHash = hash;
+        delete codes['reset:' + u.email.toLowerCase()];
+        commit();
+        return u;
+      });
+    },
+
     /** Mga patakaran sa password. Gamitin din ito sa server kapag may backend na. */
     passwordChecks: function (pw) {
       pw = pw || '';
