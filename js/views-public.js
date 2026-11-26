@@ -18,7 +18,7 @@
       '<div class="mapview">' +
       '<aside class="panel">' +
       '<div class="stack-s"><h1 class="display">Nakita mo? I-report mo.<br>Ayusin natin.</h1>' +
-      '<p class="lead">I-photo ang sirang kalsada, baha, o kahit anong problema sa area niyo. Visible ito sa buong Pilipinas hanggang ma-fix.</p></div>' +
+      '<p class="lead">I-photo ang sirang kalsada, baha, o kahit anong problema sa area niyo. Visible ito sa buong Pilipinas hanggang ma-fix. Bago dito? Basahin ang <a href="#/guide">Guide</a>.</p></div>' +
       '<div class="field"><label for="q">Search ng place, problema o user</label><input id="q" type="search" placeholder="Hal. Marikina, lubak, baha" autocomplete="off"></div>' +
       '<div class="chips" id="cats" role="group" aria-label="Category"></div>' +
       '<div class="listhead"><h2>Reports</h2><span class="muted small" id="count"></span></div>' +

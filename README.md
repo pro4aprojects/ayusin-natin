@@ -53,8 +53,9 @@ img/logo.jpg, logo-hq.png   logo (in-upload na design, Lanczos upscale 4x: 1024p
 js/views-public.js          Mapa (home), Reports, Report details
 js/views-report.js          Mag-Report (Terms & Conditions + form)
 js/views-users.js           Users (ranking), public Profile, Contact Us
+js/views-guide.js           Guide (step-by-step na gabay sa lahat ng features)
 js/views-account-admin.js   Account (sign in, set up account, forgot password, profile photo) at Administrator
-js/app.js                   hash router at header
+js/app.js                   hash router, header, hamburger / Navigation panel sa mobile
 ```
 
 ## Demo data
@@ -90,6 +91,11 @@ Naka-save sa bawat ulat: `lat`, `lng`, `accuracy` (metro), `locationSource` (`gp
 ## Pagination at 450 na display limit
 
 Lahat ng listahan (Reports, Users, profile, admin tables) ay naka-pagination at **max 450 na item ang ipinapakita kada resulta** para hindi mabigat ang page (`AN.ui.LIMITS` sa `js/ui.js`: 450 display, 24 kada page; 30 sa Users, 50 sa admin table). Pero sa **lahat ng data tumatakbo ang search, filter at sort**: kapag lumampas sa 450 ang match, sinasabi ng count line na i-refine ang search para makita ang iba. Sa list ng map panel, "Show more" nang 12-12 hanggang 450; lahat pa rin ay nasa mapa.
+
+## Guide at mobile navigation
+
+- **Guide** (`#/guide`): step-by-step na gabay sa lahat: ano ang app at status flow, pag-navigate sa mapa, sign in at account setup, Mag-Report, pag-update at confirm, Reports page, Users at points (live ang top 3 at ang points table mula sa `AN.SCORING`), Contact Us, moderator/admin, safety, at FAQ. May table of contents na naka-sticky sa desktop at chips sa phone; plain na anchor ang mga section (hindi hash route).
+- **Mobile navigation** (≤ 860 px): isang row lang ang header (logo, Mag-Report, hamburger). Binubuksan ng hamburger ang collapsible na **Navigation** panel na may Map, Reports, Mag-Report, Users, Contact Us, Guide, Admin (kapag staff) at ang account row. May **Collapse** na button, sumasara sa pag-tap ng link, sa backdrop, sa Escape, at sa pagpalit ng route; naka-lock ang scroll habang bukas. Sa desktop, inline pa rin ang mga tab at walang hamburger. Ang status/urgent na filter sa mapa ay isang swipeable na row sa phone.
 
 ## Contact Us
 
